@@ -1,5 +1,7 @@
 # Pearch.ai MCP
 
+[![smithery badge](https://smithery.ai/badge/@Pearch-ai/mcp_pearch)](https://smithery.ai/server/@Pearch-ai/mcp_pearch)
+
 Pearch.ai MCP is a FastMCP service that enables powerful people search capabilities through the Pearch.ai. This service allows you to integrate advanced people search functionality into your applications.
 
 
@@ -19,6 +21,14 @@ Pearch.ai MCP is a FastMCP service that enables powerful people search capabilit
    ```
 
 ## Installation
+
+### Installing via Smithery
+
+To install mcp_pearch for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Pearch-ai/mcp_pearch):
+
+```bash
+npx -y @smithery/cli install @Pearch-ai/mcp_pearch --client claude
+```
 
 ### Option 1: macOS[uv] 
 
