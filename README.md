@@ -2,7 +2,9 @@
 
 [![smithery badge](https://smithery.ai/badge/@Pearch-ai/mcp_pearch)](https://smithery.ai/server/@Pearch-ai/mcp_pearch)
 
-Pearch.ai MCP is a FastMCP service that enables powerful people search capabilities through the Pearch.ai. This service allows you to integrate advanced people search functionality into your applications.
+Our people search API and MCP deliver the most precise results on the market. You simply ask in natural language, and we provide top-quality candidates. Designed for seamless integration with any ATS or hiring platform, our solution is backed by scientific methods, trusted by recruiters, and consistently rated the highest-quality sourcing tool.
+
+[Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
 
 
 ## Prerequisites
@@ -13,9 +15,8 @@ Pearch.ai MCP is a FastMCP service that enables powerful people search capabilit
 
 ## API Key Setup
 
-1. Visit [Pearch.ai Dashboard](https://s.pearch.ai/) to obtain your API key
-2. For testing purposes, you can use the test key: `pearch_mcp_key`
-3. Set your API key as an environment variable:
+1. Visit [Pearch.ai Dashboard](https://s.pearch.ai/settings) to obtain your API key
+2. Set your API key as an environment variable:
    ```bash
    export PEARCH_API_KEY='your-api-key-here'
    ```
@@ -80,23 +81,11 @@ export PEARCH_API_KEY='your-api-key-here'
 fastmcp dev pearch_mcp.py
 ```
 
-## Contributing
-
-We welcome contributions! Here's how you can help:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please ensure your code follows our coding standards and includes appropriate tests.
-
 ## Support
 
 If you encounter any issues or have questions:
 - Open an issue in the repository
-- Contact support at [support@pearch.ai](mailto:support@pearch.ai)
+- Contact support at [f@pearch.ai](mailto:f@pearch.ai)
 
 ## License
 
