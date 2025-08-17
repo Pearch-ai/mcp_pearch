@@ -1,4 +1,5 @@
 # Pearch.ai MCP
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/Pearch-ai/mcp_pearch)](https://archestra.ai/mcp-catalog/pearch-ai__mcp_pearch)
 
 [![smithery badge](https://smithery.ai/badge/@Pearch-ai/mcp_pearch)](https://smithery.ai/server/@Pearch-ai/mcp_pearch)
 
