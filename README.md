@@ -15,7 +15,7 @@ Our people search API and MCP deliver the most precise results on the market. Yo
 
 ## API Key Setup
 
-1. Visit [Pearch.ai Dashboard](https://s.pearch.ai/settings) to obtain your API key
+1. Visit [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) to obtain your API key
 2. Set your API key as an environment variable:
    ```bash
    export PEARCH_API_KEY='your-api-key-here'
