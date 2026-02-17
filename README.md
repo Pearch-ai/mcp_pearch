@@ -2,91 +2,150 @@
 
 [![smithery badge](https://smithery.ai/badge/@Pearch-ai/mcp_pearch)](https://smithery.ai/server/@Pearch-ai/mcp_pearch)
 
-Our people search API and MCP deliver the most precise results on the market. You simply ask in natural language, and we provide top-quality candidates. Designed for seamless integration with any ATS or hiring platform, our solution is backed by scientific methods, trusted by recruiters, and consistently rated the highest-quality sourcing tool.
+MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **people** and **companies/leads** (B2B). Use it from Cursor, Claude Desktop, VS Code, or any MCP-compatible client.
 
 [Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
 
+## Features
+
+- **search_people** — natural-language search for people (e.g. “software engineers in California with 5+ years Python”); returns candidates with optional insights and profile scoring.
+- **search_company_leads** — find companies and leads/contacts within them (B2B); e.g. “AI startups in SF, 50–200 employees” + “CTOs and engineering managers”.
+- **Test key by default** — works out of the box with `test_mcp_key` (masked/sample results); set your own key for full results.
 
 ## Prerequisites
 
-- Python 3.7 or newer
-- Pearch.ai API key
-- FastMCP package
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [FastMCP](https://gofastmcp.com/) — install with `pip install fastmcp` or `uv add fastmcp`
 
-## API Key Setup
+## API key
 
-1. Visit [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) to obtain your API key
-2. Set your API key as an environment variable:
-   ```bash
-   export PEARCH_API_KEY='your-api-key-here'
-   ```
+In the config below we use **`test_mcp_key`** — you get **masked** (sample) results, no sign-up.  
+For **full, unmasked** results: get a key at [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) and put it in `PEARCH_API_KEY` instead of `test_mcp_key` in the same place in your config.
 
 ## Installation
 
-### Installing via Smithery
-
-To install mcp_pearch for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Pearch-ai/mcp_pearch):
+### Via npx (Smithery, Claude Desktop — one-click, no Python)
 
 ```bash
 npx -y @smithery/cli install @Pearch-ai/mcp_pearch --client claude
 ```
 
-### Option 1: macOS[uv] 
+Then in Smithery set `pearchApiKey` to `test_mcp_key` (masked results) or your dashboard key (full results). Requires only Node.js.
+
+### Cursor
+
+**Automatic (recommended):**
 
 ```bash
-# Install Python and uv
-brew install python
-brew install uv
-
-# Create and activate virtual environment
-uv venv
-source .venv/bin/activate
-
-# Install FastMCP
-uv pip install fastmcp
+cd /path/to/mcp_pearch
+fastmcp install cursor pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
 ```
 
-### Option 2: Linux[pip] 
+Replace `test_mcp_key` with your dashboard key for full results.
 
-```bash
-# Install system dependencies
-sudo apt update
-sudo apt install python3 python3-venv python3-pip
+**Manual:** add the server to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`). Use `test_mcp_key` for masked results; replace with your dashboard key for full results:
 
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install FastMCP
-pip install fastmcp
+```json
+{
+  "mcpServers": {
+    "Pearch.ai": {
+      "command": "uv",
+      "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/absolute/path/to/pearch_mcp.py"],
+      "env": { "PEARCH_API_KEY": "test_mcp_key" }
+    }
+  }
+}
 ```
 
-## Usage
-
-### Standard Installation
+Generate a ready snippet:
 
 ```bash
-fastmcp install pearch_mcp.py --name "Pearch.ai" --env-var PEARCH_API_KEY=pearch_mcp_key
+fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
 ```
 
-### Development Mode
+Then paste the output into `mcpServers` in `~/.cursor/mcp.json`.
 
-For local development and testing:
+### Claude Desktop
+
+**Via npx (no Python):** run once, then set the API key in Smithery:
 
 ```bash
-# Set your API key
-export PEARCH_API_KEY='your-api-key-here'
+npx -y @smithery/cli install @Pearch-ai/mcp_pearch --client claude
+```
 
-# Start development server
-fastmcp dev pearch_mcp.py
+**Without npx/Smithery (local install):** need Python 3.10+ and [uv](https://docs.astral.sh/uv/) or pip + `pip install fastmcp`.
+
+**Automatic:**
+
+```bash
+cd /path/to/mcp_pearch
+fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
+```
+
+Replace `test_mcp_key` with your dashboard key for full results.
+
+If you get `bad interpreter: No such file or directory` (e.g. in conda), reinstall in the current env and retry: `pip install --force-reinstall fastmcp`, or run: `python -m fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key`.
+
+**Manual:** edit `~/.claude/claude_desktop_config.json` and add under `mcpServers`. Replace `/path/to/mcp_pearch` with the real path. Use `test_mcp_key` for masked results; replace with your dashboard key for full results.
+
+With **uv**:
+```json
+"Pearch.ai": {
+  "command": "uv",
+  "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/path/to/mcp_pearch/pearch_mcp.py"],
+  "env": { "PEARCH_API_KEY": "test_mcp_key" }
+}
+```
+
+With **pip/conda** (no uv):
+```json
+"Pearch.ai": {
+  "command": "python",
+  "args": ["/path/to/mcp_pearch/pearch_mcp.py"],
+  "env": { "PEARCH_API_KEY": "test_mcp_key" }
+}
+```
+Ensure `fastmcp` is installed in that Python env (`pip install fastmcp`).
+
+### Other clients (VS Code, custom)
+
+Use the same `mcpServers` format:
+
+- **VS Code:** `.vscode/mcp.json` in the workspace.
+- **Any MCP client:** add the same `command` / `args` / `env` block to the client’s MCP config.
+
+Generate config (uses `test_mcp_key` by default; add `--env PEARCH_API_KEY=your-key` for full results):
+
+```bash
+fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
+```
+
+Paste the generated object into your client’s `mcpServers`.
+
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| **search_people** | Natural-language search for people or follow-up on a thread. Example: *"software engineers in California with 5+ years Python"*, *"senior ML researchers in Berlin"*. |
+| **search_company_leads** | Find companies and leads/contacts (B2B). Example: company *"AI startups in SF, 50–200 employees"* + leads *"CTOs and engineering managers"*. |
+
+Base URL: `PEARCH_API_URL` or per-call `base_url` (default `https://api.pearch.ai`).
+
+## Development
+
+```bash
+# test key (masked results); or set your key for full results
+export PEARCH_API_KEY='test_mcp_key'
+
+fastmcp dev inspector pearch_mcp.py
 ```
 
 ## Support
 
-If you encounter any issues or have questions:
-- Open an issue in the repository
-- Contact support at [f@pearch.ai](mailto:f@pearch.ai)
+- [Open an issue](https://github.com/Pearch-ai/mcp_pearch/issues)
+- [f@pearch.ai](mailto:f@pearch.ai)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

@@ -14,6 +14,6 @@ startCommand:
     properties:
       pearchApiKey:
         type: string
-        description: Pearch.ai API key for authorization
+        description: Pearch.ai API key. Use test_mcp_key for masked sample results (no sign-up); use your dashboard key for full results.
   exampleConfig:
-    pearchApiKey: pearch_mcp_key
+    pearchApiKey: test_mcp_key
