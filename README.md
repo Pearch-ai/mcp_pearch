@@ -1,10 +1,8 @@
 # Pearch.ai MCP
 
-[![smithery badge](https://smithery.ai/badge/@Pearch-ai/mcp_pearch)](https://smithery.ai/server/@Pearch-ai/mcp_pearch)
-
 MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **people** and **companies/leads** (B2B). Use it from Cursor, Claude Desktop, VS Code, or any MCP-compatible client.
 
-[Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
+> [Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
 
 ## Features
 
@@ -14,28 +12,68 @@ MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **pe
 
 ## Prerequisites
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- [FastMCP](https://gofastmcp.com/) — install with `pip install fastmcp` or `uv add fastmcp`
+- **Python 3.10+**
+- **[uv](https://docs.astral.sh/uv/)** (recommended; Linux/macOS: `curl -LsSf https://astral.sh/uv/install.sh | sh`) or pip
+- **FastMCP** — install with `pip install fastmcp` or `uv add fastmcp`
 
 ## API key
 
-In the config below we use **`test_mcp_key`** — you get **masked** (sample) results, no sign-up.  
-For **full, unmasked** results: get a key at [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) and put it in `PEARCH_API_KEY` instead of `test_mcp_key` in the same place in your config.
+Use **`test_mcp_key`** for **masked (sample) results** — no sign-up required.
+
+For **full, unmasked results**, get an API key from the [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) and set it as `PEARCH_API_KEY` in your MCP config (see Installation below).
 
 ## Installation
 
-### Via npx (Smithery, Claude Desktop — one-click, no Python)
+### Claude Desktop
+
+**Automatic:**
 
 ```bash
-npx -y @smithery/cli install @Pearch-ai/mcp_pearch --client claude
+cd /path/to/mcp_pearch
+fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
 ```
 
-Then in Smithery set `pearchApiKey` to `test_mcp_key` (masked results) or your dashboard key (full results). Requires only Node.js.
+Replace `test_mcp_key` with your dashboard key for full results.
+
+If you see `bad interpreter: No such file or directory` (e.g. with conda), run:
+
+```bash
+pip install --force-reinstall fastmcp
+```
+
+or:
+
+```bash
+python -m fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
+```
+
+**Manual:** edit `~/.claude/claude_desktop_config.json` and add under `mcpServers`. Replace `/path/to/mcp_pearch` with your actual path.
+
+With **uv**:
+
+```json
+"Pearch.ai": {
+  "command": "uv",
+  "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/path/to/mcp_pearch/pearch_mcp.py"],
+  "env": { "PEARCH_API_KEY": "test_mcp_key" }
+}
+```
+
+With **pip/conda** (no uv):
+
+```json
+"Pearch.ai": {
+  "command": "python",
+  "args": ["/path/to/mcp_pearch/pearch_mcp.py"],
+  "env": { "PEARCH_API_KEY": "test_mcp_key" }
+}
+```
+
+Ensure `fastmcp` is installed: `pip install fastmcp`.
 
 ### Cursor
 
-**Automatic (recommended):**
+**Recommended (automatic):**
 
 ```bash
 cd /path/to/mcp_pearch
@@ -44,7 +82,7 @@ fastmcp install cursor pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
 
 Replace `test_mcp_key` with your dashboard key for full results.
 
-**Manual:** add the server to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`). Use `test_mcp_key` for masked results; replace with your dashboard key for full results:
+**Manual:** add to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`):
 
 ```json
 {
@@ -58,7 +96,9 @@ Replace `test_mcp_key` with your dashboard key for full results.
 }
 ```
 
-Generate a ready snippet:
+Replace `/absolute/path/to/pearch_mcp.py` with the real path. Use `test_mcp_key` for masked results, or your dashboard key for full results.
+
+To generate a ready snippet:
 
 ```bash
 fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
@@ -66,56 +106,12 @@ fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
 
 Then paste the output into `mcpServers` in `~/.cursor/mcp.json`.
 
-### Claude Desktop
+### VS Code and other clients
 
-**Via npx (no Python):** run once, then set the API key in Smithery:
+- **VS Code:** add the same `mcpServers` block to `.vscode/mcp.json` in your workspace.
+- **Other MCP clients:** use the same `command` / `args` / `env` format in the client’s MCP config.
 
-```bash
-npx -y @smithery/cli install @Pearch-ai/mcp_pearch --client claude
-```
-
-**Without npx/Smithery (local install):** need Python 3.10+ and [uv](https://docs.astral.sh/uv/) or pip + `pip install fastmcp`.
-
-**Automatic:**
-
-```bash
-cd /path/to/mcp_pearch
-fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
-```
-
-Replace `test_mcp_key` with your dashboard key for full results.
-
-If you get `bad interpreter: No such file or directory` (e.g. in conda), reinstall in the current env and retry: `pip install --force-reinstall fastmcp`, or run: `python -m fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key`.
-
-**Manual:** edit `~/.claude/claude_desktop_config.json` and add under `mcpServers`. Replace `/path/to/mcp_pearch` with the real path. Use `test_mcp_key` for masked results; replace with your dashboard key for full results.
-
-With **uv**:
-```json
-"Pearch.ai": {
-  "command": "uv",
-  "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/path/to/mcp_pearch/pearch_mcp.py"],
-  "env": { "PEARCH_API_KEY": "test_mcp_key" }
-}
-```
-
-With **pip/conda** (no uv):
-```json
-"Pearch.ai": {
-  "command": "python",
-  "args": ["/path/to/mcp_pearch/pearch_mcp.py"],
-  "env": { "PEARCH_API_KEY": "test_mcp_key" }
-}
-```
-Ensure `fastmcp` is installed in that Python env (`pip install fastmcp`).
-
-### Other clients (VS Code, custom)
-
-Use the same `mcpServers` format:
-
-- **VS Code:** `.vscode/mcp.json` in the workspace.
-- **Any MCP client:** add the same `command` / `args` / `env` block to the client’s MCP config.
-
-Generate config (uses `test_mcp_key` by default; add `--env PEARCH_API_KEY=your-key` for full results):
+Generate a config snippet (defaults to `test_mcp_key`; add `--env PEARCH_API_KEY=your-key` for full results):
 
 ```bash
 fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
@@ -135,9 +131,7 @@ Base URL: `PEARCH_API_URL` or per-call `base_url` (default `https://api.pearch.a
 ## Development
 
 ```bash
-# test key (masked results); or set your key for full results
-export PEARCH_API_KEY='test_mcp_key'
-
+export PEARCH_API_KEY='test_mcp_key'   # or your key for full results
 fastmcp dev inspector pearch_mcp.py
 ```
 
