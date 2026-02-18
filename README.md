@@ -24,12 +24,18 @@ For **full, unmasked results**, get an API key from the [Pearch.ai Dashboard](ht
 
 ## Installation
 
+Clone the repo, then follow the steps for your client:
+
+```bash
+git clone https://github.com/Pearch-ai/mcp_pearch
+cd mcp_pearch
+```
+
 ### Claude Desktop
 
 **Automatic:**
 
 ```bash
-cd /path/to/mcp_pearch
 fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
 ```
 
@@ -76,7 +82,6 @@ Ensure `fastmcp` is installed: `pip install fastmcp`.
 **Recommended (automatic):**
 
 ```bash
-cd /path/to/mcp_pearch
 fastmcp install cursor pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
 ```
 

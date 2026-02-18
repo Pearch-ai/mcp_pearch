@@ -10,8 +10,7 @@ _TIMEOUT = 1800
 
 mcp = FastMCP(
     "Pearch_MCP",
-    description="Natural-language search over people and companies/leads (B2B) via Pearch.AI.",
-    instructions="Tools for searching people and companies/leads via Pearch.AI. Use search_people for people search; use search_company_leads to find companies and leads within them (B2B). By default uses test_mcp_key (masked results). For full results set PEARCH_API_KEY or pass api_key; base URL via PEARCH_API_URL or base_url.",
+    instructions="Natural-language search over people and companies/leads (B2B) via Pearch.AI. Use search_people for people search; use search_company_leads to find companies and leads within them (B2B). By default uses test_mcp_key (masked results). For full results set PEARCH_API_KEY or pass api_key; base URL via PEARCH_API_URL or base_url.",
 )
 
 
