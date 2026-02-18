@@ -1,4 +1,5 @@
 # Pearch.ai MCP
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/Pearch-ai/mcp_pearch)](https://archestra.ai/mcp-catalog/pearch-ai__mcp_pearch)
 
 MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **people** and **companies/leads** (B2B). Use it from Cursor, Claude Desktop, VS Code, or any MCP-compatible client.
 
