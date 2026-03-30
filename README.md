@@ -4,6 +4,10 @@ MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **pe
 
 > [Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/pearch-ai-mcp-pearch).
+
 ## Features
 
 - **search_people** — natural-language search for people (e.g. “software engineers in California with 5+ years Python”); returns candidates with optional insights and profile scoring.
