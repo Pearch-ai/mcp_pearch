@@ -1,0 +1,16 @@
+{
+  "name": "pearch",
+  "owner": {
+    "name": "Dmitry Kushnikov",
+    "email": "dkushnikov@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "pearch",
+      "description": "MCP tools (search_people, search_company_leads) + /source skill for structured executive candidate sourcing.",
+      "source": "./plugins/pearch",
+      "category": "productivity",
+      "homepage": "https://github.com/dkushnikov/mcp_pearch"
+    }
+  ]
+}
