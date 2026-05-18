@@ -133,6 +133,34 @@ Paste the generated object into your client’s `mcpServers`.
 
 Base URL: `PEARCH_API_URL` or per-call `base_url` (default `https://api.pearch.ai`).
 
+## Remote HTTP (Kubernetes / Cursor URL)
+
+The server exposes Streamable HTTP at `/mcp` when run with Uvicorn:
+
+```bash
+export PEARCH_API_URL='https://api.pearch.ai'   # optional
+uvicorn pearch_mcp:app --host 0.0.0.0 --port 8000
+```
+
+Health: `GET /health` or `/healthcheck`.
+
+Remote access uses the **same Pearch API key** as `api.pearch.ai` (`Authorization: Bearer`). The server validates keys via `GET /v1/user`. Demo key `test_mcp_key` is also accepted (masked results).
+
+Cursor `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "Pearch.ai": {
+      "url": "https://mcp.pearch.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:PEARCH_API_KEY}"
+      }
+    }
+  }
+}
+```
+
 ## Development
 
 ```bash

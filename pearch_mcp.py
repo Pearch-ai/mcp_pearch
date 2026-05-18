@@ -1,20 +1,81 @@
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, TokenVerifier
+from fastmcp.server.event_store import EventStore
+from fastmcp.server.dependencies import get_access_token
 import os
 import urllib.request
 import urllib.error
 import json
 from typing import Any
 
+from starlette.responses import JSONResponse
+
 _DEFAULT_BASE_URL = "https://api.pearch.ai"
 _TIMEOUT = 1800
+_AUTH_TIMEOUT = 30
+
+_DEFAULT_API_KEY = "test_mcp_key"
+
+
+class PearchApiKeyVerifier(TokenVerifier):
+    def __init__(self, base_url: str | None = None):
+        super().__init__()
+        self._base_url = (base_url or os.environ.get("PEARCH_API_URL") or _DEFAULT_BASE_URL).rstrip("/")
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not token:
+            return None
+        if token == _DEFAULT_API_KEY:
+            return AccessToken(
+                token=token,
+                client_id="test_mcp",
+                scopes=[],
+                claims={"api_key": token},
+            )
+        req = urllib.request.Request(
+            f"{self._base_url}/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "accept": "application/json",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_AUTH_TIMEOUT) as resp:
+                if resp.getcode() == 200:
+                    return AccessToken(
+                        token=token,
+                        client_id="pearch-api",
+                        scopes=[],
+                        claims={"api_key": token},
+                    )
+        except urllib.error.HTTPError:
+            return None
+        except urllib.error.URLError:
+            return None
+        return None
+
+
+def _build_auth() -> PearchApiKeyVerifier | None:
+    if os.environ.get("MCP_DISABLE_AUTH") == "1":
+        return None
+    return PearchApiKeyVerifier()
+
+
+def _resolve_api_key(api_key: str | None) -> str:
+    if api_key:
+        return api_key
+    access = get_access_token()
+    if access and access.token:
+        return access.token
+    return os.environ.get("PEARCH_API_KEY") or _DEFAULT_API_KEY
+
 
 mcp = FastMCP(
     "Pearch_MCP",
-    instructions="Natural-language search over people and companies/leads (B2B) via Pearch.AI. Use search_people for people search; use search_company_leads to find companies and leads within them (B2B). By default uses test_mcp_key (masked results). For full results set PEARCH_API_KEY or pass api_key; base URL via PEARCH_API_URL or base_url.",
+    instructions="Natural-language search over people and companies/leads (B2B) via Pearch.AI. Use search_people for people search; use search_company_leads to find companies and leads within them (B2B). Authenticate with the same Pearch API key as api.pearch.ai (Authorization: Bearer). Use test_mcp_key for masked sample results.",
+    auth=_build_auth(),
 )
-
-
-_DEFAULT_API_KEY = "test_mcp_key"
 
 
 def _request(
@@ -23,7 +84,7 @@ def _request(
     api_key: str | None = None,
     base_url: str | None = None,
 ) -> dict[str, Any]:
-    key = api_key or os.environ.get("PEARCH_API_KEY") or _DEFAULT_API_KEY
+    key = _resolve_api_key(api_key)
     root = (base_url or os.environ.get("PEARCH_API_URL") or _DEFAULT_BASE_URL).rstrip("/")
     url = f"{root}/{path.lstrip('/')}"
     data = json.dumps(body).encode("utf-8")
@@ -119,7 +180,14 @@ def search_company_leads(
     return _request("v2/search_company_leads", body, api_key=api_key, base_url=base_url)
 
 
-app = mcp.http_app()
+@mcp.custom_route("/health", methods=["GET"])
+@mcp.custom_route("/healthcheck", methods=["GET"])
+async def health_check(request):
+    return JSONResponse({"status": "healthy", "service": "pearch-mcp"})
+
+
+_event_store = EventStore()
+app = mcp.http_app(event_store=_event_store, retry_interval=2000)
 
 if __name__ == "__main__":
     import argparse
