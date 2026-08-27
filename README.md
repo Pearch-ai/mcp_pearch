@@ -1,152 +1,37 @@
 # Pearch.ai MCP
 
-MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **people** and **companies/leads** (B2B). Use it from Cursor, Claude Desktop, VS Code, or any MCP-compatible client.
+MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **people** and **companies/leads** (B2B). Use it from Claude, Cursor, VS Code, or any MCP-compatible client.
 
 > [Evaluating AI Recruitment Sourcing Tools by Human Preference](https://arxiv.org/abs/2504.02463v1)
-
-## Features
-
-- **search_people** — natural-language search for people (e.g. “software engineers in California with 5+ years Python”); returns candidates with optional insights and profile scoring.
-- **search_company_leads** — find companies and leads/contacts within them (B2B); e.g. “AI startups in SF, 50–200 employees” + “CTOs and engineering managers”.
-- **Test key by default** — works out of the box with `test_mcp_key` (masked/sample results); set your own key for full results.
-
-## Prerequisites
-
-- **Python 3.10+**
-- **[uv](https://docs.astral.sh/uv/)** (recommended; Linux/macOS: `curl -LsSf https://astral.sh/uv/install.sh | sh`) or pip
-- **FastMCP** — install with `pip install fastmcp` or `uv add fastmcp`
-
-## API key
-
-Use **`test_mcp_key`** for **masked (sample) results** — no sign-up required.
-
-For **full, unmasked results**, get an API key from the [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard) and set it as `PEARCH_API_KEY` in your MCP config (see Installation below).
-
-## Installation
-
-Clone the repo, then follow the steps for your client:
-
-```bash
-git clone https://github.com/Pearch-ai/mcp_pearch
-cd mcp_pearch
-```
-
-### Claude Desktop
-
-**Automatic:**
-
-```bash
-fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
-```
-
-Replace `test_mcp_key` with your dashboard key for full results.
-
-If you see `bad interpreter: No such file or directory` (e.g. with conda), run:
-
-```bash
-pip install --force-reinstall fastmcp
-```
-
-or:
-
-```bash
-python -m fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
-```
-
-**Manual:** edit `~/.claude/claude_desktop_config.json` and add under `mcpServers`. Replace `/path/to/mcp_pearch` with your actual path.
-
-With **uv**:
-
-```json
-"Pearch.ai": {
-  "command": "uv",
-  "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/path/to/mcp_pearch/pearch_mcp.py"],
-  "env": { "PEARCH_API_KEY": "test_mcp_key" }
-}
-```
-
-With **pip/conda** (no uv):
-
-```json
-"Pearch.ai": {
-  "command": "python",
-  "args": ["/path/to/mcp_pearch/pearch_mcp.py"],
-  "env": { "PEARCH_API_KEY": "test_mcp_key" }
-}
-```
-
-Ensure `fastmcp` is installed: `pip install fastmcp`.
-
-### Cursor
-
-**Recommended (automatic):**
-
-```bash
-fastmcp install cursor pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
-```
-
-Replace `test_mcp_key` with your dashboard key for full results.
-
-**Manual:** add to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "Pearch.ai": {
-      "command": "uv",
-      "args": ["run", "--with", "fastmcp", "fastmcp", "run", "/absolute/path/to/pearch_mcp.py"],
-      "env": { "PEARCH_API_KEY": "test_mcp_key" }
-    }
-  }
-}
-```
-
-Replace `/absolute/path/to/pearch_mcp.py` with the real path. Use `test_mcp_key` for masked results, or your dashboard key for full results.
-
-To generate a ready snippet:
-
-```bash
-fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
-```
-
-Then paste the output into `mcpServers` in `~/.cursor/mcp.json`.
-
-### VS Code and other clients
-
-- **VS Code:** add the same `mcpServers` block to `.vscode/mcp.json` in your workspace.
-- **Other MCP clients:** use the same `command` / `args` / `env` format in the client’s MCP config.
-
-Generate a config snippet (defaults to `test_mcp_key`; add `--env PEARCH_API_KEY=your-key` for full results):
-
-```bash
-fastmcp install mcp-json pearch_mcp.py --name "Pearch.ai"
-```
-
-Paste the generated object into your client’s `mcpServers`.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| **search_people** | Natural-language search for people or follow-up on a thread. Example: *"software engineers in California with 5+ years Python"*, *"senior ML researchers in Berlin"*. |
-| **search_company_leads** | Find companies and leads/contacts (B2B). Example: company *"AI startups in SF, 50–200 employees"* + leads *"CTOs and engineering managers"*. |
+| **search_people** | Natural-language people search (e.g. *"software engineers in California with 5+ years Python"*). Supports fast/pro/superfast search types, contact reveal & contact filters, real-time profile refresh, insights, and thread-based pagination/follow-ups. |
+| **search_company_leads** | Find companies and leads/contacts within them (B2B). Example: company *"AI startups in SF, 50–200 employees"* + leads *"CTOs and engineering managers"*, with optional personalized outreach messages. |
+| **get_profile** | Look up and enrich a single person by LinkedIn slug or email (contact reveal, real-time refresh, GitHub enrichment). |
+| **get_user_info** | Authenticated user info: email, remaining credits, pricing plan. Free. |
 
-Base URL: `PEARCH_API_URL` or per-call `base_url` (default `https://api.pearch.ai`).
+Custom structured filters (`custom_filters` / `search_requirements`) are intentionally not exposed — describe everything in the natural-language query.
 
-## Remote HTTP (Kubernetes / Cursor URL)
+## Remote server (recommended)
 
-The server exposes Streamable HTTP at `/mcp` when run with Uvicorn:
+The hosted server lives at `https://mcp.pearch.ai/mcp` and supports two auth schemes at once:
+
+### OAuth (no key handling)
+
+Add the server without any headers — OAuth-capable clients (Claude, Cursor, VS Code) discover the flow automatically and open a Google sign-in. Sign in with the Google account whose email matches your Pearch account:
 
 ```bash
-export PEARCH_API_URL='https://api.pearch.ai'   # optional
-uvicorn pearch_mcp:app --host 0.0.0.0 --port 8000
+claude mcp add --transport http pearch https://mcp.pearch.ai/mcp
 ```
 
-Health: `GET /health` or `/healthcheck`.
+Your searches bill credits against your own Pearch account. If your Pearch account has no API key yet, create one first in the [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard).
 
-Remote access uses the **same Pearch API key** as `api.pearch.ai` (`Authorization: Bearer`). The server validates keys via `GET /v1/user`. Demo key `test_mcp_key` is also accepted (masked results).
+### API key
 
-Cursor `~/.cursor/mcp.json`:
+Pass the same Pearch API key as `api.pearch.ai`:
 
 ```json
 {
@@ -160,6 +45,62 @@ Cursor `~/.cursor/mcp.json`:
   }
 }
 ```
+
+Use **`test_mcp_key`** for **masked (sample) results** — no sign-up required.
+
+## Local (stdio) installation
+
+Requires **Python 3.10+** and `pip install -r requirements.txt` (or `pip install fastmcp`).
+
+### Claude Desktop / Claude Code
+
+```bash
+fastmcp install claude-desktop pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
+```
+
+Or manually under `mcpServers`:
+
+```json
+"Pearch.ai": {
+  "command": "python",
+  "args": ["/path/to/mcp_pearch/pearch_mcp.py"],
+  "env": { "PEARCH_API_KEY": "test_mcp_key" }
+}
+```
+
+### Cursor
+
+```bash
+fastmcp install cursor pearch_mcp.py --env PEARCH_API_KEY=test_mcp_key
+```
+
+Replace `test_mcp_key` with your dashboard key for full results.
+
+## Running your own HTTP server
+
+```bash
+uvicorn pearch_mcp:app --host 0.0.0.0 --port 8000
+```
+
+Health: `GET /health` or `/healthcheck` (reports the auth mode).
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PEARCH_MCP_AUTH` | `api_key` | `oauth` \| `api_key` \| `none`. In `oauth` mode raw API-key bearers are still accepted (dual auth). |
+| `PEARCH_MCP_BASE_URL` | `http://localhost:8000` | Public URL of this server. OAuth metadata, token audience, and the `/auth/callback` redirect URI all derive from it. |
+| `PEARCH_MCP_GOOGLE_CLIENT_ID` / `PEARCH_MCP_GOOGLE_CLIENT_SECRET` | — | Google OAuth 2.0 Web application client (register `<base_url>/auth/callback` as a redirect URI). Required in `oauth` mode. |
+| `PEARCH_MCP_INTERNAL_TOKEN` | — | Shared secret for the Pearch API's internal email→API-key mapping endpoint. Required in `oauth` mode. |
+| `PEARCH_MCP_OAUTH_STORE` | `disk` | `redis` keeps OAuth state (client registrations, tokens — encrypted) in Redis so it survives restarts and allows >1 replica. |
+| `PEARCH_MCP_OAUTH_REDIS_HOST` / `REDIS_ENDPOINT`, `REDIS_PORT`, `PEARCH_MCP_OAUTH_REDIS_DB`, `REDIS_PASSWORD` | —, `6379`, `4`, — | Redis connection for the OAuth store. |
+| `PEARCH_MCP_ALLOWED_CLIENT_REDIRECT_URIS` | built-in list | Comma-separated fnmatch patterns for MCP client redirect URIs (`*` = any). |
+| `PEARCH_MCP_TOKEN_CACHE_TTL_S` | `300` | Verified-identity cache TTL; also the revocation lag. |
+| `PEARCH_API_URL` | `https://api.pearch.ai` | Pearch API base (per-call `base_url` overrides). |
+| `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
+| `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
+
+In `oauth` mode the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
 
 ## Development
 
