@@ -110,6 +110,10 @@ export PEARCH_API_KEY='test_mcp_key'   # or your key for full results
 fastmcp dev inspector pearch_mcp.py
 ```
 
+## Privacy Policy
+
+Pearch.AI's privacy policy: https://pearch.ai/privacy-policy — covers data collection, usage, storage, third-party sharing, retention, and contact information. Data deletion / opt-out: https://pearch.ai/opt-out. Terms of service: https://pearch.ai/tos.
+
 ## Support
 
 - [Open an issue](https://github.com/Pearch-ai/mcp_pearch/issues)

@@ -437,7 +437,10 @@ def _body(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Search People",
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+)
 def search_people(
     query: str | None = None,
     search_type: str | None = None,
@@ -532,7 +535,10 @@ def search_people(
     return _request("v2/search", body, api_key=api_key, base_url=base_url)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Search Company Leads",
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+)
 def search_company_leads(
     company_query: str | None = None,
     lead_query: str | None = None,
@@ -623,7 +629,10 @@ def search_company_leads(
     return _request("v2/search_company_leads", body, api_key=api_key, base_url=base_url)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Person Profile",
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+)
 def get_profile(
     docid: str | None = None,
     uuid: str | None = None,
@@ -664,7 +673,10 @@ def get_profile(
     return _get_request("v1/profile", params, api_key=api_key, base_url=base_url)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Account Info",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
 def get_user_info(
     api_key: str | None = None,
     base_url: str | None = None,
