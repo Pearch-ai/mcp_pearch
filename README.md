@@ -136,7 +136,8 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_MCP_GOOGLE_CLIENT_ID` / `PEARCH_MCP_GOOGLE_CLIENT_SECRET` | — | Google OAuth 2.0 Web application client (register `<base_url>/auth/callback` as a redirect URI). Required in `oauth` mode. |
 | `PEARCH_MCP_INTERNAL_TOKEN` | — | Shared secret for the Pearch API's internal email→API-key mapping endpoint. Required in `oauth` mode. |
 | `PEARCH_MCP_OAUTH_STORE` | `disk` | `redis` keeps OAuth state (client registrations, tokens — encrypted) in Redis so it survives restarts and allows >1 replica. |
-| `PEARCH_MCP_OAUTH_REDIS_HOST` / `REDIS_ENDPOINT`, `REDIS_PORT`, `PEARCH_MCP_OAUTH_REDIS_DB`, `REDIS_PASSWORD` | —, `6379`, `4`, — | Redis connection for the OAuth store. |
+| `PEARCH_MCP_OAUTH_REDIS_HOST` / `REDIS_ENDPOINT`, `REDIS_PORT`, `PEARCH_MCP_OAUTH_REDIS_DB` / `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_SSL` | —, `6379`, `4`, —, `false` | Redis connection for the OAuth store. Set `REDIS_SSL=true` for TLS-only services such as Azure Managed Redis. |
+| `PEARCH_MCP_OAUTH_REDIS_PREFIX` | `mcp-pearch` | Prefix applied to every OAuth collection so one Redis database can safely host multiple applications. |
 | `PEARCH_MCP_ALLOWED_CLIENT_REDIRECT_URIS` | built-in list | Comma-separated fnmatch patterns for MCP client redirect URIs (`*` = any). |
 | `PEARCH_MCP_TOKEN_CACHE_TTL_S` | `300` | Verified-identity cache TTL; also the revocation lag. |
 | `PEARCH_API_URL` | `https://api.pearch.ai` | Pearch API base (per-call `base_url` overrides). |
