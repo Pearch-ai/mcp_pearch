@@ -267,19 +267,30 @@ def _oauth_client_storage(client_secret: str) -> Any:
     from fastmcp.server.auth.jwt_issuer import derive_jwt_key
     from key_value.aio.stores.redis import RedisStore
     from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+    from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+    from redis.asyncio import Redis
 
     host = os.environ.get("PEARCH_MCP_OAUTH_REDIS_HOST") or os.environ.get("REDIS_ENDPOINT", "")
     if not host:
         raise RuntimeError("PEARCH_MCP_OAUTH_STORE=redis requires PEARCH_MCP_OAUTH_REDIS_HOST or REDIS_ENDPOINT")
     port = int(os.environ.get("REDIS_PORT", "6379"))
-    db = int(os.environ.get("PEARCH_MCP_OAUTH_REDIS_DB", "4"))
-    log.info("pearch-mcp: OAuth state store = redis %s:%s/%s (encrypted)", host, port, db)
+    db = int(os.environ.get("PEARCH_MCP_OAUTH_REDIS_DB", os.environ.get("REDIS_DB", "4")))
+    ssl = os.environ.get("REDIS_SSL", "false").lower() in {"1", "true", "yes"}
+    prefix = os.environ.get("PEARCH_MCP_OAUTH_REDIS_PREFIX", "mcp-pearch")
+    log.info("pearch-mcp: OAuth state store = redis %s:%s/%s prefix=%s tls=%s (encrypted)", host, port, db, prefix, ssl)
     return FernetEncryptionWrapper(
-        key_value=RedisStore(
-            host=host,
-            port=port,
-            db=db,
-            password=os.environ.get("REDIS_PASSWORD") or None,
+        key_value=PrefixCollectionsWrapper(
+            key_value=RedisStore(
+                client=Redis(
+                    host=host,
+                    port=port,
+                    db=db,
+                    password=os.environ.get("REDIS_PASSWORD") or None,
+                    ssl=ssl,
+                    decode_responses=True,
+                )
+            ),
+            prefix=prefix,
         ),
         fernet=Fernet(
             key=derive_jwt_key(
