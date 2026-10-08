@@ -1,6 +1,6 @@
 """Pearch.ai MCP server.
 
-Natural-language people/company-leads search over the Pearch API.
+Natural-language and structured people search, and company-leads search over the Pearch API.
 
 Auth modes (PEARCH_MCP_AUTH):
   oauth   — Google OAuth via FastMCP's OAuthProxy: the MCP client does DCR + the
@@ -30,6 +30,7 @@ from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from fastmcp.server.auth.providers.google import GoogleTokenVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.event_store import EventStore
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import JSONResponse
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -355,6 +356,7 @@ mcp = FastMCP(
         "Natural-language search over people and companies/leads (B2B) via Pearch.AI. "
         "Use search_people for people search, search_company_leads for B2B company+lead "
         "discovery, get_profile to enrich a single person, get_user_info for credits/plan. "
+        "search_people accepts a natural-language query or structured search_requirements. "
         "Authenticate via OAuth (sign in with the Google account of your Pearch user) or "
         "with a Pearch API key (Authorization: Bearer, same key as api.pearch.ai). "
         "Use test_mcp_key for masked sample results."
@@ -437,6 +439,19 @@ def _body(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
+class SearchRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    search_requirement: str = Field(
+        min_length=1,
+        description="A short, self-contained requirement for a person's professional profile.",
+    )
+    must_have: bool = Field(
+        default=False,
+        description="True for a mandatory requirement; false for a nice-to-have preference.",
+    )
+
+
 @mcp.tool(
     title="Search People",
     annotations={"readOnlyHint": True, "openWorldHint": True},
@@ -466,11 +481,18 @@ def search_people(
     free: bool | None = None,
     api_key: str | None = None,
     base_url: str | None = None,
+    search_requirements: list[SearchRequirement] | None = None,
 ) -> dict[str, Any]:
-    """Search for people and professional profiles using natural language.
+    """Search for people using a natural-language query or structured search requirements.
 
     Pass a natural-language query (e.g. "software engineers in California with 5+ years
-    Python"). search_type: "fast" (1 credit/candidate, ~30s; the default for new
+    Python") or a non-empty search_requirements list. Each requirement has
+    search_requirement (a short, self-contained text) and must_have (true for mandatory,
+    false for nice-to-have; defaults to false). If both inputs are provided,
+    search_requirements takes precedence in the API. All search options below work
+    with either input, subject to the same search-type restrictions.
+
+    search_type: "fast" (1 credit/candidate, ~30s; the default for new
     searches), "pro" (5 credits/candidate, higher quality, can take a few minutes), or
     "superfast" (1 credit/candidate, cheapest and quickest; incompatible with
     insights/profile_scoring/high_freshness). Leave search_type unset on thread_id
@@ -480,9 +502,10 @@ def search_people(
     reveal_emails +6 (only when found) + reveal_phones +6 (only when found); any
     filter_out_no_* contact filter +1.
 
-    Pagination and follow-ups: reuse thread_id from a previous response. Changing only
-    limit/offset pages through cached results (cheap); changing the query or any other
-    parameter re-runs the search. offset + limit must not exceed 1000.
+    Pagination: reuse thread_id from a previous response and change only limit/offset.
+    To change query or search_requirements, start a new search without thread_id.
+    Other thread follow-ups are forwarded to the API, whose restrictions apply.
+    offset + limit must not exceed 1000.
 
     Options: insights_items subset of ["overall_summary", "short_quotes", "rationale",
     "short_rationale"]; filter_out_no_emails / filter_out_no_phones /
@@ -498,6 +521,8 @@ def search_people(
     Returns thread_id, search_results (each: docid, profile, score, insights),
     total_estimate, credits_used, credits_remaining, status.
     """
+    if search_requirements is not None and not search_requirements:
+        raise ValueError("search_requirements must contain at least one search requirement")
     if limit < 1:
         limit = 1
     if offset < 0:
@@ -510,6 +535,11 @@ def search_people(
         search_type = "fast"
     body = _body(
         query=query,
+        search_requirements=(
+            [requirement.model_dump() for requirement in search_requirements]
+            if search_requirements is not None
+            else None
+        ),
         type=search_type,
         limit=limit,
         offset=offset,
