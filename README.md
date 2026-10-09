@@ -28,7 +28,7 @@ Add the server without any headers — OAuth-capable clients (Claude, Cursor, VS
 claude mcp add --transport http pearch https://mcp.pearch.ai/mcp
 ```
 
-Your searches bill credits against your own Pearch account. If your Pearch account has no API key yet, create one first in the [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard).
+Your searches bill credits against your own Pearch account. No API key setup is needed: the server uses your account's existing key, or creates one named `MCP` on first sign-in (it then shows up in the [Pearch.ai Dashboard](https://platform.pearch.ai/dashboard)). If you have no Pearch account yet, sign up there first.
 
 ### API key
 

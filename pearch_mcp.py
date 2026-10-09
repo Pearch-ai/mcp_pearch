@@ -182,8 +182,9 @@ def _fetch_api_key_for_email(email: str) -> str | None:
 class PearchGoogleVerifier(GoogleTokenVerifier):
     """Google token verification (tokeninfo/userinfo) + Pearch account mapping.
 
-    A valid Google identity that has no Pearch account (or no API key) is
-    rejected: tool calls bill credits against the caller's own key.
+    A valid Google identity that has no Pearch account is rejected: tool
+    calls bill credits against the caller's own key (the Pearch API creates
+    one on first sign-in if the account has none).
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -208,7 +209,7 @@ class PearchGoogleVerifier(GoogleTokenVerifier):
         api_key = await asyncio.to_thread(_fetch_api_key_for_email, email)
         if not api_key:
             log.warning(
-                "pearch-mcp: no Pearch API key for %s — sign up and create a key at platform.pearch.ai",
+                "pearch-mcp: no Pearch account or API key for %s — sign up at platform.pearch.ai",
                 email,
             )
             return None
