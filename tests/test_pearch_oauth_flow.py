@@ -127,12 +127,12 @@ async def sign_in(mcp_client, supabase, client_scopes="email profile"):
         },
     )
     assert token.status_code == 200, token.text
-    return upstream_authorize, token
+    return upstream_authorize, token, client_id
 
 
 @respx.mock(assert_all_called=False)
 async def test_the_user_is_sent_to_supabase_with_pinned_scopes(mcp_client, pearch_api, respx_mock):
-    upstream_authorize, _ = await sign_in(mcp_client, respx_mock)
+    upstream_authorize, _, _ = await sign_in(mcp_client, respx_mock)
     parsed = urlparse(upstream_authorize)
     query = query_of(upstream_authorize)
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == f"{SUPABASE}/auth/v1/oauth/authorize"
@@ -145,7 +145,7 @@ async def test_the_user_is_sent_to_supabase_with_pinned_scopes(mcp_client, pearc
 
 @respx.mock(assert_all_called=False)
 async def test_the_client_never_receives_the_supabase_tokens(mcp_client, pearch_api, respx_mock):
-    _, token = await sign_in(mcp_client, respx_mock)
+    _, token, _ = await sign_in(mcp_client, respx_mock)
     body = token.json()
     assert UPSTREAM_ACCESS not in token.text
     assert UPSTREAM_REFRESH not in token.text
@@ -172,7 +172,7 @@ async def test_the_proxy_authenticates_to_supabase_as_the_registered_app(mcp_cli
 
 @respx.mock(assert_all_called=False)
 async def test_a_client_token_is_swapped_for_the_supabase_token_that_goes_to_the_api(mcp_client, proxy, pearch_api, respx_mock):
-    _, token = await sign_in(mcp_client, respx_mock)
+    _, token, _ = await sign_in(mcp_client, respx_mock)
     client_token = token.json()["access_token"]
 
     access = await proxy.load_access_token(client_token)
@@ -191,3 +191,28 @@ async def test_a_forged_client_token_is_rejected_without_calling_the_api(mcp_cli
     body = base64.urlsafe_b64encode(json.dumps({"jti": "nope"}).encode()).rstrip(b"=").decode()
     assert await proxy.load_access_token(f"{header}.{body}.forged") is None
     assert pearch_api == []
+
+
+@respx.mock(assert_all_called=False)
+async def test_refresh_follows_the_rotation_of_the_supabase_refresh_token(mcp_client, pearch_api, respx_mock):
+    _, token, client_id = await sign_in(mcp_client, respx_mock)
+    rotations = [("supabase-access-2", "supabase-refresh-2"), ("supabase-access-3", "supabase-refresh-3")]
+    respx_mock.clear()
+    route = respx_mock.post(f"{SUPABASE}/auth/v1/oauth/token")
+    route.side_effect = [
+        httpx.Response(200, json={"access_token": access, "refresh_token": refresh, "token_type": "bearer", "expires_in": 604800})
+        for access, refresh in rotations
+    ]
+    client_refresh = token.json()["refresh_token"]
+
+    for sent_upstream_refresh, (new_access, _) in zip([UPSTREAM_REFRESH, "supabase-refresh-2"], rotations):
+        response = await mcp_client.post(
+            "/token",
+            data={"grant_type": "refresh_token", "refresh_token": client_refresh, "client_id": client_id},
+        )
+        assert response.status_code == 200, response.text
+        assert new_access not in response.text
+        client_refresh = response.json()["refresh_token"]
+        sent = parse_qs(route.calls.last.request.content.decode())
+        assert sent["grant_type"] == ["refresh_token"]
+        assert sent["refresh_token"] == [sent_upstream_refresh]
