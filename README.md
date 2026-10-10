@@ -89,8 +89,9 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PEARCH_MCP_AUTH` | `api_key` | `oauth` \| `api_key` \| `none`. In `oauth` mode raw API-key bearers are still accepted (dual auth). |
+| `PEARCH_MCP_AUTH` | `api_key` | `pearch_oauth` \| `oauth` \| `api_key` \| `none`. `pearch_oauth` signs users in with their Pearch account (Supabase Auth); `oauth` signs in with Google. In both OAuth modes raw API-key bearers are still accepted (dual auth). |
 | `PEARCH_MCP_BASE_URL` | `http://localhost:8000` | Public URL of this server. OAuth metadata, token audience, and the `/auth/callback` redirect URI all derive from it. |
+| `PEARCH_MCP_SUPABASE_URL` / `PEARCH_MCP_SUPABASE_CLIENT_ID` / `PEARCH_MCP_SUPABASE_CLIENT_SECRET` | — | Pearch's Supabase project URL and a **confidential** OAuth app registered there (Authentication → OAuth Apps; redirect URI `<base_url>/auth/callback`). Required in `pearch_oauth` mode. |
 | `PEARCH_MCP_GOOGLE_CLIENT_ID` / `PEARCH_MCP_GOOGLE_CLIENT_SECRET` | — | Google OAuth 2.0 Web application client (register `<base_url>/auth/callback` as a redirect URI). Required in `oauth` mode. |
 | `PEARCH_MCP_INTERNAL_TOKEN` | — | Shared secret for the Pearch API's internal email→API-key mapping endpoint. Required in `oauth` mode. |
 | `PEARCH_MCP_OAUTH_STORE` | `disk` | `redis` keeps OAuth state (client registrations, tokens — encrypted) in Redis so it survives restarts and allows >1 replica. |
@@ -102,13 +103,20 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
 | `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
 
-In `oauth` mode the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
+In the OAuth modes the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
 
 ## Development
 
 ```bash
 export PEARCH_API_KEY='test_mcp_key'   # or your key for full results
 fastmcp dev inspector pearch_mcp.py
+```
+
+Tests (the OAuth flow is exercised end to end against a fake Supabase and a fake Pearch API):
+
+```bash
+pip install -r requirements.txt pytest pytest-asyncio respx httpx
+python -m pytest
 ```
 
 ## Privacy Policy
