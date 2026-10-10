@@ -8,6 +8,12 @@ Auth modes (PEARCH_MCP_AUTH):
             the verified Google email is mapped to the user's Pearch API key
             through an internal Pearch API endpoint. Raw Pearch API keys sent as
             a plain bearer keep working in this mode too (dual auth).
+  pearch_oauth — sign in with the Pearch account: the same OAuthProxy flow, but
+            the upstream is Pearch's own Supabase Auth OAuth server instead of
+            Google. The Supabase access token stays on this server (clients only
+            ever receive tokens issued by this server) and is validated and sent
+            to the Pearch API on every tool call; no API key is involved. Raw
+            Pearch API keys keep working as a plain bearer (dual auth).
   api_key — Authorization: Bearer <pearch api key>, validated against the Pearch
             API (the historical scheme, default).
   none    — no auth (local dev only; MCP_DISABLE_AUTH=1 is equivalent).
@@ -110,11 +116,16 @@ class _IdentityCache:
 
 
 class PearchApiKeyVerifier(TokenVerifier):
-    """Validate a raw Pearch API key against GET /v1/user."""
+    """Validate a Pearch bearer (API key or Supabase OAuth access token) against GET /v1/user.
 
-    def __init__(self, base_url: str | None = None):
-        super().__init__()
+    `scopes` are the scopes granted to every token the Pearch API accepts; the OAuth
+    proxy requires them on the upstream token.
+    """
+
+    def __init__(self, base_url: str | None = None, scopes: list[str] | None = None):
+        super().__init__(required_scopes=scopes)
         self._base_url = _api_root(base_url)
+        self._scopes = list(scopes or [])
         self._cache = _IdentityCache()
 
     async def verify_token(self, token: str) -> AccessToken | None:
@@ -139,7 +150,7 @@ class PearchApiKeyVerifier(TokenVerifier):
         access = AccessToken(
             token=token,
             client_id="pearch-api",
-            scopes=[],
+            scopes=list(self._scopes),
             claims={"api_key": token, "email": email},
         )
         self._cache.put(token, access)
@@ -333,6 +344,37 @@ def _build_oauth_auth() -> OAuthProxy:
     )
 
 
+_PEARCH_OAUTH_SCOPES = ["email", "profile", "offline_access"]
+
+
+def _build_pearch_oauth_auth() -> OAuthProxy:
+    supabase_url = os.environ.get("PEARCH_MCP_SUPABASE_URL", "").rstrip("/")
+    client_id = os.environ.get("PEARCH_MCP_SUPABASE_CLIENT_ID", "")
+    client_secret = os.environ.get("PEARCH_MCP_SUPABASE_CLIENT_SECRET", "")
+    if not (supabase_url and client_id and client_secret):
+        raise RuntimeError(
+            "PEARCH_MCP_AUTH=pearch_oauth requires PEARCH_MCP_SUPABASE_URL, "
+            "PEARCH_MCP_SUPABASE_CLIENT_ID and PEARCH_MCP_SUPABASE_CLIENT_SECRET (a confidential "
+            f"OAuth app in Supabase Auth with redirect URI {_BASE_URL}/auth/callback)"
+        )
+
+    log.info("pearch-mcp: Pearch OAuth upstream=%s callback=%s/auth/callback", supabase_url, _BASE_URL)
+    return DualAuthOAuthProxy(
+        api_key_verifier=PearchApiKeyVerifier(),
+        upstream_authorization_endpoint=f"{supabase_url}/auth/v1/oauth/authorize",
+        upstream_token_endpoint=f"{supabase_url}/auth/v1/oauth/token",
+        upstream_client_id=client_id,
+        upstream_client_secret=client_secret,
+        token_verifier=PearchApiKeyVerifier(scopes=_PEARCH_OAUTH_SCOPES),
+        base_url=_BASE_URL,
+        redirect_path="/auth/callback",
+        token_endpoint_auth_method="client_secret_basic",
+        allowed_client_redirect_uris=_client_redirect_uris(),
+        client_storage=_oauth_client_storage(client_secret),
+        require_authorization_consent=True,
+    )
+
+
 def _build_auth() -> Any:
     if _AUTH_MODE == "none":
         log.warning("pearch-mcp: AUTH DISABLED (PEARCH_MCP_AUTH=none) — local dev only")
@@ -340,8 +382,10 @@ def _build_auth() -> Any:
     if _AUTH_MODE == "api_key":
         log.info("pearch-mcp: auth = Pearch API key")
         return PearchApiKeyVerifier()
+    if _AUTH_MODE == "pearch_oauth":
+        return _build_pearch_oauth_auth()
     if _AUTH_MODE != "oauth":
-        raise RuntimeError(f"unknown PEARCH_MCP_AUTH={_AUTH_MODE!r} (expected oauth|api_key|none)")
+        raise RuntimeError(f"unknown PEARCH_MCP_AUTH={_AUTH_MODE!r} (expected pearch_oauth|oauth|api_key|none)")
     return _build_oauth_auth()
 
 
@@ -737,7 +781,7 @@ async def health_check(request):
             "status": "healthy",
             "service": "pearch-mcp",
             "auth": _AUTH_MODE,
-            "base_url": _BASE_URL if _AUTH_MODE == "oauth" else None,
+            "base_url": _BASE_URL if _AUTH_MODE in ("oauth", "pearch_oauth") else None,
         }
     )
 
