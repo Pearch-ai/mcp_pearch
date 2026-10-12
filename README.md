@@ -9,12 +9,54 @@ MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **pe
 
 | Tool | Description |
 |------|-------------|
-| **search_people** | Natural-language people search (e.g. *"software engineers in California with 5+ years Python"*). Supports fast/pro/superfast search types, contact reveal & contact filters, real-time profile refresh, insights, and thread-based pagination/follow-ups. |
+| **search_people** | People search with a natural-language `query` or structured `search_requirements`. Supports fast/pro/superfast search types, contact reveal & contact filters, real-time profile refresh, insights, and thread-based pagination/follow-ups. |
 | **search_company_leads** | Find companies and leads/contacts within them (B2B). Example: company *"AI startups in SF, 50–200 employees"* + leads *"CTOs and engineering managers"*, with optional personalized outreach messages. |
 | **get_profile** | Look up and enrich a single person by LinkedIn slug or email (contact reveal, real-time refresh, GitHub enrichment). |
 | **get_user_info** | Authenticated user info: email, remaining credits, pricing plan. Free. |
 
-Custom structured filters (`custom_filters` / `search_requirements`) are intentionally not exposed — describe everything in the natural-language query.
+### Structured people search
+
+Pass `search_requirements` to `search_people` when you already have a list of criteria:
+
+```json
+{
+  "search_requirements": [
+    {
+      "search_requirement": "Software engineer with 5+ years of Python experience",
+      "must_have": true
+    },
+    {
+      "search_requirement": "Experience at a fintech company",
+      "must_have": false
+    }
+  ],
+  "search_type": "fast",
+  "limit": 10,
+  "insights": true,
+  "reveal_emails": true
+}
+```
+
+- `search_requirement`: required, non-empty text. Keep each criterion short and self-contained.
+- `must_have`: `true` for mandatory criteria, `false` for nice-to-have preferences (the default).
+
+The list must contain at least one requirement. `query` is optional when using
+`search_requirements`; if both are supplied, the API gives `search_requirements`
+precedence. See the [Pearch search API contract](https://apidocs.pearch.ai/reference/post_v2-search).
+
+Both inputs support the same search options: search type, insights and scoring,
+profile refresh, contact reveal and filters, strict filtering, low-confidence
+results, time budget, pagination, response fields, profile exclusions, and free
+masked results. Search-type restrictions are the same for both inputs; for example,
+`superfast` does not support insights, profile scoring, or high freshness.
+
+For pagination, send the returned `thread_id` with `limit` and optionally `offset`,
+omitting `query` and `search_requirements`. To change criteria, start a new search
+without `thread_id`. Existing `query` calls and thread follow-ups are still forwarded
+as before; the API decides which follow-up parameters it accepts.
+
+`custom_filters` is not exposed by this MCP server. Express criteria in `query` or
+`search_requirements` instead.
 
 ## Remote server (recommended)
 
