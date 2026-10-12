@@ -145,6 +145,8 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
 | `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
 
+Enabling `pearch_oauth`: first list the Supabase OAuth app's client id in `MCP_OAUTH_CLIENT_IDS` on the Pearch API. Without it sign-in succeeds but every tool call is refused (HTTP 403), and the MCP logs `the Pearch API refused a token obtained through sign-in`.
+
 In the OAuth modes the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
 
 ## Development

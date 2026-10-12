@@ -1,4 +1,7 @@
+import io
 import json
+import logging
+import urllib.error
 
 import pytest
 from fastmcp.server.auth import AccessToken
@@ -139,3 +142,51 @@ async def test_the_public_demo_key_still_works_without_a_lookup(monkeypatch):
     monkeypatch.setattr(pearch_mcp.PearchApiKeyVerifier, "_fetch_user", forbidden)
     access = await pearch_mcp.PearchApiKeyVerifier().verify_token("test_mcp_key")
     assert access.claims == {"api_key": "test_mcp_key"}
+
+
+def _refuse_with(monkeypatch, code, body):
+    def urlopen(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, code, "refused", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(pearch_mcp.urllib.request, "urlopen", urlopen)
+
+
+def test_verifier_says_when_the_api_refuses_a_token_from_sign_in(monkeypatch, caplog):
+    _refuse_with(monkeypatch, 403, b'{"http": 403, "status": "Forbidden"}')
+    caplog.set_level(logging.INFO)
+
+    verifier = pearch_mcp.PearchApiKeyVerifier(base_url="https://api.example.test", scopes=PEARCH_SCOPES)
+    assert verifier._fetch_user("secret-token") is None
+
+    assert "MCP_OAUTH_CLIENT_IDS" in caplog.text
+    assert "secret-token" not in caplog.text
+
+
+def test_verifier_keeps_an_ordinary_bad_key_quiet(monkeypatch, caplog):
+    _refuse_with(monkeypatch, 403, b'{"http": 403, "status": "Forbidden"}')
+    caplog.set_level(logging.INFO)
+
+    assert pearch_mcp.PearchApiKeyVerifier(base_url="https://api.example.test")._fetch_user("pk_bad") is None
+
+    assert caplog.text == ""
+
+
+def test_verifier_reports_an_unavailable_api(monkeypatch, caplog):
+    _refuse_with(monkeypatch, 503, b"")
+    caplog.set_level(logging.WARNING)
+
+    assert pearch_mcp.PearchApiKeyVerifier(base_url="https://api.example.test")._fetch_user("pk_any") is None
+
+    assert "HTTP 503" in caplog.text
+
+
+def test_verifier_reports_a_network_failure(monkeypatch, caplog):
+    def urlopen(request, timeout=None):
+        raise urllib.error.URLError("handshake failed")
+
+    monkeypatch.setattr(pearch_mcp.urllib.request, "urlopen", urlopen)
+    caplog.set_level(logging.WARNING)
+
+    assert pearch_mcp.PearchApiKeyVerifier(base_url="https://api.example.test")._fetch_user("pk_any") is None
+
+    assert "handshake failed" in caplog.text

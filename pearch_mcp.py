@@ -167,8 +167,27 @@ class PearchApiKeyVerifier(TokenVerifier):
                 if resp.getcode() != 200:
                     return None
                 return json.load(resp)
-        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        except urllib.error.HTTPError as error:
+            self._log_refusal(error)
             return None
+        except (urllib.error.URLError, json.JSONDecodeError) as error:
+            log.warning("pearch-mcp: could not verify a token against the Pearch API: %s", error)
+            return None
+
+    def _log_refusal(self, error: urllib.error.HTTPError) -> None:
+        # The API hides why it answers 403, and a wrong API key gets the same answer, so
+        # that case stays quiet. A refused token that sign-in just produced (scopes are
+        # set only on that verifier) means the API does not list the OAuth client:
+        # without this line the sign-in loops with no explanation.
+        if error.code in (401, 403):
+            if self._scopes:
+                log.warning(
+                    "pearch-mcp: the Pearch API refused a token obtained through sign-in (HTTP %s); "
+                    "check that the Supabase OAuth client is listed in MCP_OAUTH_CLIENT_IDS on the API",
+                    error.code,
+                )
+            return
+        log.warning("pearch-mcp: Pearch API error while verifying a token (HTTP %s)", error.code)
 
 
 def _fetch_api_key_for_email(email: str) -> str | None:
