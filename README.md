@@ -152,14 +152,6 @@ export PEARCH_API_KEY='test_mcp_key'   # or your key for full results
 fastmcp dev inspector pearch_mcp.py
 ```
 
-Run the MCP contract tests after installing `requirements.txt`:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-The tests use a local HTTP server and do not call the Pearch API or spend credits.
-
 ## Privacy Policy
 
 Pearch.AI's privacy policy: https://pearch.ai/privacy-policy — covers data collection, usage, storage, third-party sharing, retention, and contact information. Data deletion / opt-out: https://pearch.ai/opt-out. Terms of service: https://pearch.ai/tos.
