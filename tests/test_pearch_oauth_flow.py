@@ -53,8 +53,12 @@ def pearch_api(monkeypatch):
 
 
 @pytest.fixture
-async def mcp_client(proxy):
-    app = FastMCP("flow-test", auth=proxy).http_app()
+def app(proxy):
+    return FastMCP("flow-test", auth=proxy).http_app()
+
+
+@pytest.fixture
+async def mcp_client(app):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as client:
         yield client
 
@@ -216,3 +220,94 @@ async def test_refresh_follows_the_rotation_of_the_supabase_refresh_token(mcp_cl
         sent = parse_qs(route.calls.last.request.content.decode())
         assert sent["grant_type"] == ["refresh_token"]
         assert sent["refresh_token"] == [sent_upstream_refresh]
+
+
+async def begin(client, client_id=None):
+    """Register (unless a client id is given) and start /authorize; returns (client_id, consent location)."""
+    if client_id is None:
+        registration = await client.post(
+            "/register",
+            json={
+                "client_name": "Claude",
+                "redirect_uris": [CLIENT_REDIRECT],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+            },
+        )
+        client_id = registration.json()["client_id"]
+    _, challenge = pkce()
+    authorize = await client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": CLIENT_REDIRECT,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "client-state",
+            "scope": "email profile",
+        },
+    )
+    return client_id, authorize.headers["location"]
+
+
+async def allow(client, consent_url):
+    """Open the consent page and press Allow; returns the upstream authorize URL."""
+    page = await client.get(consent_url)
+    txn_id = re.search(r'name="txn_id" value="([^"]+)"', page.text).group(1)
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+    approved = await client.post("/consent", data={"action": "approve", "txn_id": txn_id, "csrf_token": csrf})
+    return approved.headers["location"]
+
+
+def supabase_token_route(supabase):
+    return supabase.post(f"{SUPABASE}/auth/v1/oauth/token").respond(
+        json={"access_token": UPSTREAM_ACCESS, "refresh_token": UPSTREAM_REFRESH, "token_type": "bearer", "expires_in": 604800}
+    )
+
+
+@respx.mock(assert_all_called=False)
+async def test_a_sign_in_cannot_be_completed_in_a_browser_that_did_not_allow_it(app, mcp_client, pearch_api, respx_mock):
+    _, consent_url = await begin(mcp_client)
+    state = query_of(await allow(mcp_client, consent_url))["state"]
+    token = supabase_token_route(respx_mock)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as other_browser:
+        refused = await other_browser.get("/auth/callback", params={"code": "upstream-code", "state": state})
+
+    assert refused.status_code == 400
+    assert not token.called, "the upstream code must not be exchanged for a browser that did not allow the connection"
+    accepted = await mcp_client.get("/auth/callback", params={"code": "upstream-code", "state": state})
+    assert accepted.status_code == 302
+
+
+@respx.mock(assert_all_called=False)
+async def test_only_looking_at_a_consent_page_does_not_bind_the_browser(app, mcp_client, pearch_api, respx_mock):
+    _, consent_url = await begin(mcp_client)
+    txn_id = query_of(consent_url)["txn_id"]
+    token = supabase_token_route(respx_mock)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as bystander:
+        await bystander.get(consent_url)
+        refused = await bystander.get("/auth/callback", params={"code": "upstream-code", "state": txn_id})
+
+    assert refused.status_code == 400
+    assert not token.called
+
+
+@respx.mock(assert_all_called=False)
+async def test_a_client_this_browser_allowed_before_is_bound_without_another_click(mcp_client, pearch_api, respx_mock):
+    client_id, consent_url = await begin(mcp_client)
+    await allow(mcp_client, consent_url)
+    token = supabase_token_route(respx_mock)
+
+    _, second_consent_url = await begin(mcp_client, client_id)
+    skipped = await mcp_client.get(second_consent_url)
+    assert skipped.status_code == 302
+    assert skipped.headers["location"].startswith(f"{SUPABASE}/auth/v1/oauth/authorize")
+
+    state = query_of(skipped.headers["location"])["state"]
+    accepted = await mcp_client.get("/auth/callback", params={"code": "upstream-code", "state": state})
+    assert accepted.status_code == 302
+    assert token.called

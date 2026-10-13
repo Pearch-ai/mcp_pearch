@@ -40,7 +40,7 @@ from fastmcp.server.auth.providers.google import GoogleTokenVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.event_store import EventStore
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.responses import JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger("pearch_mcp")
@@ -95,6 +95,9 @@ def _client_redirect_uris() -> list[str] | None:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
+_ALLOWED_FLOWS_COOKIE = "PEARCH_ALLOWED_FLOWS"
+_ALLOWED_FLOWS_MAX = 10
+_ALLOWED_FLOWS_TTL_S = 15 * 60
 _PEARCH_WORDMARK_URL = "https://platform.pearch.ai/pearch.png"
 _CONSENT_SCOPE_LINES = {
     "email": "See your email address",
@@ -380,6 +383,47 @@ class DualAuthOAuthProxy(OAuthProxy):
         if self.required_scopes:
             params.scopes = list(self.required_scopes)
         return await super().authorize(client, params)
+
+    async def _handle_consent(self, request: Any) -> Any:
+        """Remember, in a signed cookie, which sign-ins this browser allowed.
+
+        FastMCP's callback trusts the `state` it gets back and never asks whether the
+        browser delivering it is the one that pressed Allow. So someone could start a
+        connection with their own client, stop at the upstream link and send that link
+        to a signed-in user: their account would end up bound to the attacker's client.
+        Only a redirect to the upstream sign-in counts as an allowed sign-in (Allow, or
+        a client this browser already allowed), merely opening a consent page does not.
+        """
+        response = await super()._handle_consent(request)
+        location = response.headers.get("location", "") if isinstance(response, RedirectResponse) else ""
+        if location.startswith(self._upstream_authorization_endpoint):
+            if request.method == "POST":
+                txn_id = str((await request.form()).get("txn_id", ""))
+            else:
+                txn_id = request.query_params.get("txn_id", "")
+            if txn_id:
+                flows = [txn_id] + [f for f in self._decode_list_cookie(request, _ALLOWED_FLOWS_COOKIE) if f != txn_id]
+                self._set_list_cookie(
+                    response,
+                    _ALLOWED_FLOWS_COOKIE,
+                    self._encode_list_cookie(flows[:_ALLOWED_FLOWS_MAX]),
+                    max_age=_ALLOWED_FLOWS_TTL_S,
+                )
+        return response
+
+    async def _handle_idp_callback(self, request: Any) -> Any:
+        state = request.query_params.get("state")
+        if state and state not in self._decode_list_cookie(request, _ALLOWED_FLOWS_COOKIE):
+            log.warning("pearch-mcp: refused an upstream callback from a browser that did not allow this sign-in")
+            return HTMLResponse(
+                _fastmcp_oauth_proxy.create_error_html(
+                    error_title="Sign-in not completed",
+                    error_message="Finish signing in in the same browser where you allowed the connection, "
+                    "then start again from your app.",
+                ),
+                status_code=400,
+            )
+        return await super()._handle_idp_callback(request)
 
     async def load_access_token(self, token: str) -> AccessToken | None:
         if token.count(".") == 2:
