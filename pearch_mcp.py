@@ -21,6 +21,7 @@ Auth modes (PEARCH_MCP_AUTH):
 
 import asyncio
 import hashlib
+import html
 import json
 import logging
 import os
@@ -32,7 +33,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, TokenVerifier
+from fastmcp.server.auth import oauth_proxy as _fastmcp_oauth_proxy
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
+from fastmcp.utilities.ui import create_page
 from fastmcp.server.auth.providers.google import GoogleTokenVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.event_store import EventStore
@@ -90,6 +93,114 @@ def _client_redirect_uris() -> list[str] | None:
     if raw.strip() == "*":
         return None
     return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+_PEARCH_WORDMARK_URL = "https://platform.pearch.ai/pearch.png"
+_CONSENT_SCOPE_LINES = {
+    "email": "See your email address",
+    "profile": "See your name and basic profile",
+}
+_CONSENT_HIDDEN_SCOPES = frozenset({"offline_access"})
+_CONSENT_STYLES = """
+    .pm-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+               max-width: 28rem; width: 100%; margin: 1rem; padding: 1.5rem; text-align: left; }
+    .pm-card .pm-logo { display: block; width: 118px; height: 24px; margin: 0 0 1rem; }
+    .pm-card h1 { font-size: 1.5rem; line-height: 1.25; font-weight: 600; margin: 0 0 0.5rem; color: #0a0a0a; }
+    .pm-card .pm-muted { color: #6b7280; font-size: 0.875rem; }
+    .pm-card .pm-section { margin-top: 1.25rem; }
+    .pm-card .pm-label { font-size: 0.875rem; font-weight: 500; }
+    .pm-card ul { margin: 0.5rem 0 0 1.25rem; color: #6b7280; font-size: 0.875rem; line-height: 1.45; }
+    .pm-card .pm-note { margin-top: 1.25rem; color: #6b7280; font-size: 0.75rem; line-height: 1.4; }
+    .pm-card .pm-note p + p { margin-top: 0.25rem; }
+    .pm-card .pm-note strong { color: #374151; font-weight: 500; word-break: break-all; }
+    .pm-card .pm-details { margin-top: 1rem; font-size: 0.75rem; color: #6b7280; }
+    .pm-card .pm-details summary { cursor: pointer; }
+    .pm-card .pm-details dl { margin-top: 0.5rem; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; }
+    .pm-card .pm-details dd { word-break: break-all; }
+    .pm-card .pm-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
+    .pm-card .pm-btn { flex: 1; border: 1px solid #d1d5db; border-radius: 0.375rem; background: #fff; color: #0a0a0a;
+                       padding: 0.625rem 1rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
+    .pm-card .pm-btn.pm-primary { background: #111827; border-color: #111827; color: #fff; }
+    .pm-card .pm-btn:hover { opacity: 0.9; }
+"""
+
+
+def create_pearch_consent_html(
+    client_id: str,
+    redirect_uri: str,
+    scopes: list[str],
+    txn_id: str,
+    csrf_token: str,
+    client_name: str | None = None,
+    title: str = "Connect to Pearch",
+    server_name: str | None = None,
+    server_icon_url: str | None = None,
+    server_website_url: str | None = None,
+    client_website_url: str | None = None,
+    csp_policy: str | None = None,
+) -> str:
+    """Pearch-styled replacement for FastMCP's consent page.
+
+    Same form contract as FastMCP's (txn_id, csrf_token, action=approve|deny posted to the
+    current URL), so FastMCP's handler keeps doing the transaction, CSRF and cookie work.
+    The page is the one place that shows which client gets access and where the result
+    goes (a malicious client can register itself), so it stays even though the sign-in
+    that follows is Pearch's own.
+    """
+    name = html.escape(client_name or "This application")
+    uri = html.escape(redirect_uri)
+    shown_scopes = [scope for scope in scopes if scope not in _CONSENT_HIDDEN_SCOPES]
+    lines = ["Search people and companies on your behalf and use your Pearch credits"]
+    lines += [_CONSENT_SCOPE_LINES[scope] for scope in shown_scopes if scope in _CONSENT_SCOPE_LINES]
+    items = "".join(f"<li>{html.escape(line)}</li>" for line in lines)
+    permissions = html.escape(", ".join(shown_scopes) or "none")
+
+    content = f"""
+        <div class="pm-card">
+            <img class="pm-logo" src="{_PEARCH_WORDMARK_URL}" alt="Pearch.ai" width="118" height="24" />
+            <h1>{name} wants to access your Pearch account</h1>
+            <p class="pm-muted">You will sign in to Pearch next.</p>
+            <div class="pm-section">
+                <p class="pm-label">This will allow {name} to:</p>
+                <ul>{items}</ul>
+            </div>
+            <div class="pm-note">
+                <p>Only allow access if you just started connecting this app yourself.</p>
+                <p>After you choose, you will be sent back to <strong>{uri}</strong>.</p>
+            </div>
+            <details class="pm-details">
+                <summary>Details</summary>
+                <dl>
+                    <dt>Application ID</dt><dd>{html.escape(client_id)}</dd>
+                    <dt>Permissions</dt><dd>{permissions}</dd>
+                </dl>
+            </details>
+            <form id="consentForm" method="POST" action="">
+                <input type="hidden" name="txn_id" value="{html.escape(txn_id, quote=True)}" />
+                <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}" />
+                <input type="hidden" name="submit" value="true" />
+                <div class="pm-actions">
+                    <button type="submit" name="action" value="deny" class="pm-btn">Deny</button>
+                    <button type="submit" name="action" value="approve" class="pm-btn pm-primary">Allow access</button>
+                </div>
+            </form>
+        </div>
+    """
+
+    if csp_policy is None:
+        # Chrome needs the scheme of a custom-protocol redirect (cursor://, vscode://) in form-action.
+        scheme = urllib.parse.urlparse(redirect_uri).scheme.lower()
+        schemes = ["https:", "http:"] + ([f"{scheme}:"] if scheme and scheme not in ("http", "https") else [])
+        csp_policy = (
+            "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; "
+            f"base-uri 'none'; form-action {' '.join(schemes)}"
+        )
+    return create_page(content=content, title=title, additional_styles=_CONSENT_STYLES, csp_policy=csp_policy)
+
+
+# FastMCP builds its consent page through this module-level function (version pinned in
+# requirements.txt), so swapping it keeps the handler, CSRF and cookies untouched.
+_fastmcp_oauth_proxy.create_consent_html = create_pearch_consent_html
 
 
 class _IdentityCache:
