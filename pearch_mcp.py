@@ -288,6 +288,7 @@ def _oauth_client_storage(client_secret: str) -> Any:
                 salt="pearchmcp-oauth-store-encryption-key",
             )
         ),
+        raise_on_decryption_error=False,
     )
 
 
