@@ -371,6 +371,7 @@ def _headers(key: str) -> dict[str, str]:
         "accept": "application/json",
         "Content-Type": "application/json",
         "Authorization": f"Bearer {key}",
+        "X-Pearch-Source": "mcp",
     }
 
 
