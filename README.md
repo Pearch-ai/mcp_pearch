@@ -143,6 +143,12 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
 | `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
 
+Tool requests to the Pearch API include `X-Pearch-Source: mcp` on both POST and GET calls,
+including people search, company-leads search, pagination, and profile enrichment. The
+backend records this as `api_calls.request_source` for analytics and DevAdmin history.
+Deploy backend support before this MCP change. The header is analytics metadata and does
+not change authentication, account attribution, or billing.
+
 In `oauth` mode the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
 
 ## Development
