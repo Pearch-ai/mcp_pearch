@@ -134,7 +134,7 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_MCP_AUTH` | `api_key` | `oauth` \| `api_key` \| `none`. In `oauth` mode raw API-key bearers are still accepted (dual auth). |
 | `PEARCH_MCP_BASE_URL` | `http://localhost:8000` | Public URL of this server. OAuth metadata, token audience, and the `/auth/callback` redirect URI all derive from it. |
 | `PEARCH_MCP_GOOGLE_CLIENT_ID` / `PEARCH_MCP_GOOGLE_CLIENT_SECRET` | — | Google OAuth 2.0 Web application client (register `<base_url>/auth/callback` as a redirect URI). Required in `oauth` mode. |
-| `PEARCH_MCP_INTERNAL_TOKEN` | — | Shared secret for the Pearch API's internal email→API-key mapping endpoint. Required in `oauth` mode. |
+| `PEARCH_MCP_INTERNAL_TOKEN` | — | Shared secret for internal email→API-key mapping and request-source signing. Required in `oauth` mode and for verified MCP attribution with API keys. Must match the backend's `MCP_INTERNAL_TOKEN`; never distribute to end users. |
 | `PEARCH_MCP_OAUTH_STORE` | `disk` | `redis` keeps OAuth state (client registrations, tokens — encrypted) in Redis so it survives restarts and allows >1 replica. |
 | `PEARCH_MCP_OAUTH_REDIS_HOST` / `REDIS_ENDPOINT`, `REDIS_PORT`, `PEARCH_MCP_OAUTH_REDIS_DB`, `REDIS_PASSWORD` | —, `6379`, `4`, — | Redis connection for the OAuth store. |
 | `PEARCH_MCP_ALLOWED_CLIENT_REDIRECT_URIS` | built-in list | Comma-separated fnmatch patterns for MCP client redirect URIs (`*` = any). |
@@ -142,6 +142,21 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_API_URL` | `https://api.pearch.ai` | Pearch API base (per-call `base_url` overrides). |
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
 | `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
+
+Tool requests to the Pearch API include `X-Pearch-Source: mcp` on both POST and GET calls,
+including people search, company-leads search, pagination, and profile enrichment. The
+hosted server also sends `X-Pearch-Source-Signature` when the internal secret is configured
+and the destination origin matches `PEARCH_API_URL`. The HMAC binds the bearer credential,
+method, decoded path plus raw query, body, and timestamp. The backend accepts signatures
+within 300 seconds, so server clocks must be synchronized. Caller-supplied `base_url` values
+on other origins receive no signature.
+
+The backend records verified MCP traffic as `api_calls.request_source` for analytics and
+DevAdmin history. A bare source header is insufficient. Unsigned self-hosted MCP traffic
+using API keys remains `api`; authenticated allowlisted OAuth clients are recognized without
+headers. Deploy signing before enabling backend source logging, after applying its database
+migration. Older backends ignore the headers. Authentication, account attribution, and
+billing are unchanged.
 
 In `oauth` mode the ingress/reverse proxy must route the **whole host** to the server, not just `/mcp`: the flow adds `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`, `/consent`, and `/auth/callback`.
 

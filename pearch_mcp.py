@@ -15,6 +15,7 @@ Auth modes (PEARCH_MCP_AUTH):
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -366,12 +367,32 @@ mcp = FastMCP(
 )
 
 
-def _headers(key: str) -> dict[str, str]:
-    return {
+def _headers(key: str, *, method: str, url: str, data: bytes = b"") -> dict[str, str]:
+    headers = {
         "accept": "application/json",
         "Content-Type": "application/json",
         "Authorization": f"Bearer {key}",
+        "X-Pearch-Source": "mcp",
     }
+    secret = os.environ.get("PEARCH_MCP_INTERNAL_TOKEN")
+    configured = urllib.parse.urlsplit(_api_root())
+    destination = urllib.parse.urlsplit(url)
+    if secret and (destination.scheme, destination.netloc) == (configured.scheme, configured.netloc):
+        timestamp = str(int(time.time()))
+        target = urllib.parse.unquote(destination.path) or "/"
+        if destination.query:
+            target += "?" + destination.query
+        payload = json.dumps(
+            [
+                "pearch-mcp-source-v1", timestamp, method.upper(), target,
+                hashlib.sha256(key.encode()).hexdigest(), hashlib.sha256(data).hexdigest(),
+            ],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode()
+        signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+        headers["X-Pearch-Source-Signature"] = f"v1:{timestamp}:{signature}"
+    return headers
 
 
 def _read_error(e: urllib.error.HTTPError) -> RuntimeError:
@@ -401,7 +422,9 @@ def _request(
         body["free"] = True
     url = f"{_api_root(base_url)}/{path.lstrip('/')}"
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=_headers(key), method="POST")
+    req = urllib.request.Request(
+        url, data=data, headers=_headers(key, method="POST", url=url, data=data), method="POST"
+    )
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             if resp.getcode() not in (200, 202):
@@ -426,7 +449,7 @@ def _get_request(
     url = f"{_api_root(base_url)}/{path.lstrip('/')}"
     if clean:
         url += "?" + urllib.parse.urlencode(clean)
-    req = urllib.request.Request(url, headers=_headers(key), method="GET")
+    req = urllib.request.Request(url, headers=_headers(key, method="GET", url=url), method="GET")
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             if resp.getcode() != 200:
