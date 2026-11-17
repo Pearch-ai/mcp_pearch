@@ -51,6 +51,11 @@ _DEFAULT_BASE_URL = "https://api.pearch.ai"
 _TIMEOUT = 1800
 _AUTH_TIMEOUT = 30
 
+_SEARCH_WAIT_S = int(os.environ.get("PEARCH_MCP_SEARCH_WAIT_S", "40"))
+_POLL_INTERVAL_S = float(os.environ.get("PEARCH_MCP_POLL_INTERVAL_S", "2"))
+_HISTORY_PATHS = "/v2/search,/v2/search/submit,/v2/search_company_leads"
+_HISTORY_PAGE = 100
+
 _DEFAULT_API_KEY = "test_mcp_key"
 
 _AUTH_MODE = os.environ.get("PEARCH_MCP_AUTH", "api_key").lower()
@@ -655,6 +660,10 @@ mcp = FastMCP(
         "Use search_people for people search, search_company_leads for B2B company+lead "
         "discovery, get_profile to enrich a single person, get_user_info for credits/plan. "
         "search_people accepts a natural-language query or structured search_requirements. "
+        "A search that outlasts one tool call (typical for Pro) comes back with status "
+        "pending/running and a thread_id: call get_search_status with it until the results "
+        "arrive instead of repeating the search. list_searches finds earlier searches and "
+        "their thread_id. "
         "Authenticate via OAuth (sign in with the Google account of your Pearch user) or "
         "with a Pearch API key (Authorization: Bearer, same key as api.pearch.ai). "
         "Use test_mcp_key for masked sample results."
@@ -700,12 +709,48 @@ def _read_error(e: urllib.error.HTTPError) -> RuntimeError:
     return RuntimeError(f"Pearch API error {e.code}: {detail}")
 
 
-def _request(
+def _send(
+    method: str,
+    path: str,
+    key: str,
+    base_url: str | None,
+    body: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    url = f"{_api_root(base_url)}/{path.lstrip('/')}"
+    clean = {
+        k: ("true" if v is True else "false" if v is False else v)
+        for k, v in (params or {}).items()
+        if v is not None
+    }
+    if clean:
+        url += "?" + urllib.parse.urlencode(clean)
+    data = json.dumps(body).encode("utf-8") if body is not None else b""
+    req = urllib.request.Request(
+        url,
+        data=data if body is not None else None,
+        headers=_headers(key, method=method, url=url, data=data),
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            if resp.getcode() not in (200, 202):
+                raise RuntimeError(f"HTTP {resp.getcode()}")
+            return resp.getcode(), json.load(resp)
+    except urllib.error.HTTPError as e:
+        raise _read_error(e) from e
+
+
+async def _post(path: str, body: dict[str, Any], key: str, base_url: str | None) -> tuple[int, dict[str, Any]]:
+    return await asyncio.to_thread(_send, "POST", path, key, base_url, body)
+
+
+async def _request(
     path: str,
     body: dict[str, Any],
     api_key: str | None = None,
     base_url: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[int, dict[str, Any]]:
     key = _resolve_api_key(api_key)
     # The demo key has no credits: force the masked free mode for it. Company-leads
     # thread replays reject the free param, and their credit check is skipped on
@@ -716,47 +761,103 @@ def _request(
         and not (path.endswith("search_company_leads") and "thread_id" in body)
     ):
         body["free"] = True
-    url = f"{_api_root(base_url)}/{path.lstrip('/')}"
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers=_headers(key, method="POST", url=url, data=data), method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            if resp.getcode() not in (200, 202):
-                raise RuntimeError(f"HTTP {resp.getcode()}")
-            return json.load(resp)
-    except urllib.error.HTTPError as e:
-        raise _read_error(e) from e
+    return await _post(path, body, key, base_url)
 
 
-def _get_request(
+async def _get_request(
     path: str,
     params: dict[str, Any],
     api_key: str | None = None,
     base_url: str | None = None,
 ) -> dict[str, Any]:
     key = _resolve_api_key(api_key)
-    clean = {
-        k: ("true" if v is True else "false" if v is False else v)
-        for k, v in params.items()
-        if v is not None
-    }
-    url = f"{_api_root(base_url)}/{path.lstrip('/')}"
-    if clean:
-        url += "?" + urllib.parse.urlencode(clean)
-    req = urllib.request.Request(url, headers=_headers(key, method="GET", url=url), method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            if resp.getcode() != 200:
-                raise RuntimeError(f"HTTP {resp.getcode()}")
-            return json.load(resp)
-    except urllib.error.HTTPError as e:
-        raise _read_error(e) from e
+    _, payload = await asyncio.to_thread(_send, "GET", path, key, base_url, None, params)
+    return payload
 
 
 def _body(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
+
+
+def _wait_budget(wait_seconds: int | None) -> float:
+    if wait_seconds is None:
+        return _SEARCH_WAIT_S
+    return min(max(wait_seconds, 0), _TIMEOUT)
+
+
+async def _await_thread(
+    thread_id: str,
+    key: str,
+    base_url: str | None,
+    short_response: bool,
+    wait_s: float,
+    *,
+    poll_first: bool,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    deadline = time.monotonic() + wait_s
+    poll = {"thread_id": thread_id, "short_response": short_response}
+    pending = None
+    if poll_first:
+        status, payload = await _post("v2/search", poll, key, base_url)
+        if status != 202:
+            return payload, None
+        pending = payload
+    while (remaining := deadline - time.monotonic()) > 0:
+        await asyncio.sleep(min(_POLL_INTERVAL_S, remaining))
+        status, payload = await _post("v2/search", poll, key, base_url)
+        if status != 202:
+            return payload, None
+        pending = payload
+    return None, pending
+
+
+def _finished_search(result: dict[str, Any]) -> dict[str, Any]:
+    if "credits_used_total" not in result:
+        return result
+    return {**result, "credits_used": result["credits_used_total"]}
+
+
+def _still_running(pending: dict[str, Any] | None, thread_id: str, waited: float) -> dict[str, Any]:
+    pending = pending or {}
+    return {
+        "status": pending.get("status") or "pending",
+        "thread_id": thread_id,
+        "task_id": pending.get("task_id"),
+        "waited_seconds": round(waited),
+        "next_step": (
+            "The search is still running on Pearch and is charged once, when it finishes. "
+            "Call get_search_status with this thread_id to wait for the results; "
+            "do not start the same search again."
+        ),
+    }
+
+
+def _search_summary(row: dict[str, Any]) -> dict[str, Any]:
+    params = row.get("parameters") or {}
+    requirements = params.get("search_requirements") or []
+    query = params.get("query") or "\n".join(
+        item.get("search_requirement") or ""
+        for item in requirements
+        if isinstance(item, dict)
+    ).strip() or None
+    company_leads = (row.get("path") or "").endswith("search_company_leads")
+    return _body(
+        thread_id=row.get("thread_id"),
+        task_id=row.get("uuid"),
+        kind="company_leads" if company_leads else "people",
+        query=params.get("company_query") if company_leads else query,
+        lead_query=params.get("lead_query"),
+        search_type=params.get("type"),
+        limit=params.get("limit"),
+        created_at=row.get("created_at"),
+        created_by=row.get("created_by"),
+        status=row.get("task_status"),
+        http_status=row.get("response_status"),
+        results=row.get("items_count"),
+        credits_used=row.get("credits_used"),
+        duration_seconds=row.get("response_time"),
+        error=row.get("error_message"),
+    )
 
 
 class SearchRequirement(BaseModel):
@@ -776,12 +877,14 @@ class SearchRequirement(BaseModel):
     title="Search People",
     annotations={"readOnlyHint": True, "openWorldHint": True},
 )
-def search_people(
+async def search_people(
     query: str | None = None,
     search_type: str | None = None,
     limit: int = 5,
     offset: int = 0,
     thread_id: str | None = None,
+    wait_seconds: int | None = None,
+    webhook_url: str | None = None,
     insights: bool | None = None,
     insights_items: list[str] | None = None,
     profile_scoring: bool | None = None,
@@ -822,6 +925,14 @@ def search_people(
     reveal_emails +6 (only when found) + reveal_phones +6 (only when found); any
     filter_out_no_* contact filter +1.
 
+    Long searches: a new search runs in the background and this call waits for it up to
+    wait_seconds (default 40). A finished search returns its results here. A search that
+    is still running returns status "pending"/"running" with thread_id and task_id right
+    away: call get_search_status with that thread_id to keep waiting, and do not repeat
+    the search. Pro searches usually take 1-4 minutes, so expect that hand-off.
+    wait_seconds=0 submits and returns thread_id and task_id at once. webhook_url (new
+    searches only) also POSTs the finished result to that URL.
+
     Pagination: reuse thread_id from a previous response and change only limit/offset.
     To change query or search_requirements, start a new search without thread_id.
     Other thread follow-ups are forwarded to the API, whose restrictions apply.
@@ -851,6 +962,8 @@ def search_people(
         if offset >= 1000:
             raise ValueError("offset must be below 1000 (the API serves at most the top 1000 results)")
         limit = 1000 - offset
+    if thread_id is not None and webhook_url is not None:
+        raise ValueError("webhook_url applies to new searches only; drop thread_id or webhook_url")
     if search_type is None and thread_id is None:
         search_type = "fast"
     body = _body(
@@ -882,14 +995,131 @@ def search_people(
         free=free,
     )
     body["short_response"] = short_response
-    return _request("v2/search", body, api_key=api_key, base_url=base_url)
+    if thread_id is None:
+        body["async"] = True
+        if webhook_url is not None:
+            body["webhook_url"] = webhook_url
+    key = _resolve_api_key(api_key)
+    started = time.monotonic()
+    status, payload = await _request("v2/search", body, api_key=key, base_url=base_url)
+    if status != 202:
+        return payload
+    search_thread = payload.get("thread_id") or thread_id
+    result, pending = await _await_thread(
+        search_thread,
+        key,
+        base_url,
+        short_response,
+        _wait_budget(wait_seconds) - (time.monotonic() - started),
+        poll_first=False,
+    )
+    if result is None:
+        return _still_running(pending or payload, search_thread, time.monotonic() - started)
+    if thread_id is None:
+        return _finished_search(result)
+    _, page = await _request("v2/search", body, api_key=key, base_url=base_url)
+    return page
+
+
+@mcp.tool(
+    title="Get Search Status",
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+)
+async def get_search_status(
+    thread_id: str,
+    wait_seconds: int | None = None,
+    short_response: bool = True,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """Wait for a people search that is still running and return its results.
+
+    Pass the thread_id that search_people returned with status "pending" or "running".
+    The call waits up to wait_seconds (default 40). A finished search returns the same
+    result as search_people (thread_id, search_results, total_estimate, credits_used,
+    ...); credits_used is what the thread has cost in total. A search still running returns status "pending"/"running" with the same
+    thread_id: call this tool again. Waiting costs no credits; the search is charged once,
+    when it finishes. An error means the search did not finish (it failed or was
+    cancelled): start a new search.
+
+    For other pages of a finished search use search_people with thread_id, limit and
+    offset.
+    """
+    key = _resolve_api_key(api_key)
+    started = time.monotonic()
+    result, pending = await _await_thread(
+        thread_id,
+        key,
+        base_url,
+        short_response,
+        _wait_budget(wait_seconds),
+        poll_first=True,
+    )
+    if result is None:
+        return _still_running(pending, thread_id, time.monotonic() - started)
+    return _finished_search(result)
+
+
+@mcp.tool(
+    title="List Searches",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def list_searches(
+    limit: int = 10,
+    offset: int = 0,
+    include_organization: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """List your recent people and company-leads searches, newest first, with their thread_id.
+
+    Covers searches started anywhere (this MCP, the Pearch web app, the API). Use it to
+    find an earlier search, then read its results with get_search_status (people search)
+    or with search_people / search_company_leads and its thread_id; pages that were
+    already returned cost no credits. include_organization adds searches by other
+    members of your organization. date_from / date_to take ISO dates (YYYY-MM-DD).
+    limit: up to 50. For more, pass next_offset from the previous response as offset.
+
+    Free (0 credits).
+    """
+    limit = min(max(limit, 1), 50)
+    offset = max(offset, 0)
+    history = await _get_request(
+        "v1/api_call_history",
+        _body(
+            limit=_HISTORY_PAGE,
+            offset=offset,
+            paths=_HISTORY_PATHS,
+            org_history=True if include_organization else None,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+        api_key=api_key,
+        base_url=base_url,
+    )
+    searches = []
+    consumed = 0
+    for row in history.get("api_call_history") or []:
+        consumed += 1
+        if (row.get("parameters") or {}).get("thread_id"):
+            continue
+        searches.append(_search_summary(row))
+        if len(searches) == limit:
+            break
+    next_offset = offset + consumed
+    return {
+        "searches": searches,
+        "next_offset": next_offset if next_offset < (history.get("total_count") or 0) else None,
+    }
 
 
 @mcp.tool(
     title="Search Company Leads",
     annotations={"readOnlyHint": True, "openWorldHint": True},
 )
-def search_company_leads(
+async def search_company_leads(
     company_query: str | None = None,
     lead_query: str | None = None,
     limit: int = 5,
@@ -976,14 +1206,15 @@ def search_company_leads(
             free=free,
         )
     body["short_response"] = short_response
-    return _request("v2/search_company_leads", body, api_key=api_key, base_url=base_url)
+    _, payload = await _request("v2/search_company_leads", body, api_key=api_key, base_url=base_url)
+    return payload
 
 
 @mcp.tool(
     title="Get Person Profile",
     annotations={"readOnlyHint": True, "openWorldHint": True},
 )
-def get_profile(
+async def get_profile(
     docid: str | None = None,
     uuid: str | None = None,
     email: str | None = None,
@@ -1020,14 +1251,14 @@ def get_profile(
         github_enrich=github_enrich,
         short_response=short_response,
     )
-    return _get_request("v1/profile", params, api_key=api_key, base_url=base_url)
+    return await _get_request("v1/profile", params, api_key=api_key, base_url=base_url)
 
 
 @mcp.tool(
     title="Get Account Info",
     annotations={"readOnlyHint": True, "openWorldHint": False},
 )
-def get_user_info(
+async def get_user_info(
     api_key: str | None = None,
     base_url: str | None = None,
 ) -> dict[str, Any]:
@@ -1035,7 +1266,7 @@ def get_user_info(
 
     Free (0 credits). Use it to check the credit balance before expensive searches.
     """
-    return _get_request("v1/user", {}, api_key=api_key, base_url=base_url)
+    return await _get_request("v1/user", {}, api_key=api_key, base_url=base_url)
 
 
 @mcp.custom_route("/health", methods=["GET"])

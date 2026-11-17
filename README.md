@@ -10,9 +10,32 @@ MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **pe
 | Tool | Description |
 |------|-------------|
 | **search_people** | People search with a natural-language `query` or structured `search_requirements`. Supports fast/pro/superfast search types, contact reveal & contact filters, real-time profile refresh, insights, and thread-based pagination/follow-ups. |
+| **get_search_status** | Wait for a people search that is still running (by `thread_id`) and return its results. Free. |
+| **list_searches** | Your recent people and company-leads searches, newest first, with `thread_id`, query, status, results and credits. Free. |
 | **search_company_leads** | Find companies and leads/contacts within them (B2B). Example: company *"AI startups in SF, 50–200 employees"* + leads *"CTOs and engineering managers"*, with optional personalized outreach messages. |
 | **get_profile** | Look up and enrich a single person by LinkedIn slug or email (contact reveal, real-time refresh, GitHub enrichment). |
 | **get_user_info** | Authenticated user info: email, remaining credits, pricing plan. Free. |
+
+### Long searches (Pro)
+
+MCP clients drop a tool call that runs past their own limit (often 60 seconds), while a
+Pro search usually takes 1–4 minutes. `search_people` therefore starts every new search
+in the background (`async=true` on `/v2/search`) and waits up to `wait_seconds` (default
+40). A search finished by then returns its results as before. Otherwise the call returns
+at once with `status` `pending`/`running`, `thread_id` and `task_id`; the model then calls
+`get_search_status(thread_id)`, which waits again and returns the results when the search
+is done. Waiting costs nothing: the search is charged once, when it finishes, and the
+returned `credits_used` is that charge.
+
+- `wait_seconds=0` submits and returns `thread_id` and `task_id` immediately.
+- `webhook_url` (new searches only) also has Pearch POST the finished result there.
+- Pagination with `thread_id` stays synchronous; pages of a finished search are cached.
+- `list_searches` recovers `thread_id` of earlier searches, including ones started in the
+  web app or through the API.
+
+Status is read by polling `/v2/search` with the bare `thread_id`, which the API answers
+with HTTP 202 while the first search is still running, so it works for OAuth sign-in as
+well as API keys.
 
 ### Structured people search
 
@@ -143,6 +166,8 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_MCP_TOKEN_CACHE_TTL_S` | `300` | Verified-identity cache TTL; also the revocation lag. |
 | `PEARCH_API_URL` | `https://api.pearch.ai` | Pearch API base (per-call `base_url` overrides). |
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
+| `PEARCH_MCP_SEARCH_WAIT_S` | `40` | Default time a tool call waits for a background people search before handing back `thread_id`. Keep it below the clients' tool-call limit. |
+| `PEARCH_MCP_POLL_INTERVAL_S` | `2` | Interval between status polls while waiting. |
 | `MCP_DISABLE_AUTH` | — | `1` is equivalent to `PEARCH_MCP_AUTH=none` (local dev only). |
 
 Enabling `pearch_oauth`: first list the Supabase OAuth app's client id in `MCP_OAUTH_CLIENT_IDS` on the Pearch API. Without it sign-in succeeds but every tool call is refused (HTTP 403), and the MCP logs `the Pearch API refused a token obtained through sign-in`.
