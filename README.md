@@ -16,6 +16,24 @@ MCP server for [Pearch.AI](https://pearch.ai): natural-language search over **pe
 | **get_profile** | Look up and enrich a single person by LinkedIn slug or email (contact reveal, real-time refresh, GitHub enrichment). |
 | **get_user_info** | Authenticated user info: email, remaining credits, pricing plan. Free. |
 
+### Tool permissions and side effects
+
+`search_people`, `search_company_leads`, and `get_profile` are not read-only:
+they can create saved jobs, refresh/enrich stored information, or consume credits.
+They advertise `readOnlyHint=false` and `idempotentHint=false`; repeating a call
+is not guaranteed to be free of additional effects. `destructiveHint=true` is
+conservative: their full set of modes is not guaranteed to make only additive
+updates. This does not add a delete operation or change what these tools do.
+
+`get_search_status`, `list_searches`, and `get_user_info` remain read-only.
+All tools publish the same human-readable name in `title` and `annotations.title`
+for compatibility with clients and directory validators.
+
+Clients may request confirmation for operations with side effects. Cached thread
+reads still follow the existing API rules; annotations describe all modes of a
+tool, not the cost or effect of an individual call. Authentication, arguments,
+pricing, polling and pagination are unchanged by this metadata correction.
+
 ### Long searches (Pro)
 
 MCP clients drop a tool call that runs past their own limit (often 60 seconds), while a

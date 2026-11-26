@@ -910,7 +910,13 @@ class SearchRequirement(BaseModel):
 
 @mcp.tool(
     title="Search People",
-    annotations={"readOnlyHint": True, "openWorldHint": True},
+    annotations={
+        "title": "Search People",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
 )
 async def search_people(
     query: str | None = None,
@@ -1049,7 +1055,11 @@ async def search_people(
 
 @mcp.tool(
     title="Get Search Status",
-    annotations={"readOnlyHint": True, "openWorldHint": True},
+    annotations={
+        "title": "Get Search Status",
+        "readOnlyHint": True,
+        "openWorldHint": True,
+    },
 )
 async def get_search_status(
     thread_id: str,
@@ -1085,7 +1095,11 @@ async def get_search_status(
 
 @mcp.tool(
     title="List Searches",
-    annotations={"readOnlyHint": True, "openWorldHint": False},
+    annotations={
+        "title": "List Searches",
+        "readOnlyHint": True,
+        "openWorldHint": False,
+    },
 )
 async def list_searches(
     limit: int = 10,
@@ -1136,7 +1150,13 @@ async def list_searches(
 
 @mcp.tool(
     title="Search Company Leads",
-    annotations={"readOnlyHint": True, "openWorldHint": True},
+    annotations={
+        "title": "Search Company Leads",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
 )
 async def search_company_leads(
     company_query: str | None = None,
@@ -1229,7 +1249,13 @@ async def search_company_leads(
 
 @mcp.tool(
     title="Get Person Profile",
-    annotations={"readOnlyHint": True, "openWorldHint": True},
+    annotations={
+        "title": "Get Person Profile",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
 )
 async def get_profile(
     docid: str | None = None,
@@ -1271,7 +1297,11 @@ async def get_profile(
 
 @mcp.tool(
     title="Get Account Info",
-    annotations={"readOnlyHint": True, "openWorldHint": False},
+    annotations={
+        "title": "Get Account Info",
+        "readOnlyHint": True,
+        "openWorldHint": False,
+    },
 )
 async def get_user_info() -> dict[str, Any]:
     """Get the authenticated Pearch user: email, remaining credits, pricing plan.
