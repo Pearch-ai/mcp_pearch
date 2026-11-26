@@ -28,7 +28,6 @@ is done. Waiting costs nothing: the search is charged once, when it finishes, an
 returned `credits_used` is that charge.
 
 - `wait_seconds=0` submits and returns `thread_id` and `task_id` immediately.
-- `webhook_url` (new searches only) also has Pearch POST the finished result there.
 - Pagination with `thread_id` stays synchronous; pages of a finished search are cached.
 - `list_searches` recovers `thread_id` of earlier searches, including ones started in the
   web app or through the API.
@@ -234,3 +233,16 @@ Pearch API redirects (all HTTP 3xx) are refused, including during token verifica
 and legacy Google email-to-key mapping. For a self-hosted API, configure its final URL
 directly. OAuth browser redirects are unaffected. Search options, async polling,
 pagination, source signatures and credit accounting remain unchanged.
+
+### Webhook migration
+
+`search_people` no longer accepts `webhook_url`. MCP returns search results in the
+conversation: if a search returns `pending`/`running`, call `get_search_status` with
+its `thread_id` until it finishes. History and pagination continue to work.
+
+Older calls containing `webhook_url`, including null or empty values, are rejected
+before starting a search or sending a search request to the Pearch API. Remove the
+argument, refresh the tool list, and retry. The error does not echo the supplied URL.
+The argument is not silently ignored: an automation expecting a webhook must migrate
+to polling or use a direct Pearch API integration. This MCP change does not change
+the direct API's webhook contract.

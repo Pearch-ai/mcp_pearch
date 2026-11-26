@@ -166,13 +166,13 @@ async def test_search_still_running_is_handed_back_with_thread_and_task_ids(api)
 
 
 async def test_wait_seconds_zero_submits_and_returns_at_once(api):
-    pending = await call("search_people", api, query="CFOs in Austin", wait_seconds=0, webhook_url="https://hooks.example.com/x")
+    pending = await call("search_people", api, query="CFOs in Austin", wait_seconds=0)
 
     assert pending["status"] == "pending"
     assert pending["thread_id"] in api.threads
     assert pending["task_id"] == api.threads[pending["thread_id"]]["task_id"]
     (submit,) = api.search_calls()
-    assert submit["async"] is True and submit["webhook_url"] == "https://hooks.example.com/x"
+    assert submit["async"] is True and "webhook_url" not in submit
 
 
 async def test_thread_pages_stay_synchronous(api):
@@ -203,7 +203,7 @@ async def test_page_of_a_thread_still_running_waits_then_returns_that_page(api):
 
 
 async def test_webhook_url_is_refused_on_thread_follow_ups(api):
-    with pytest.raises(ToolError, match="webhook_url applies to new searches only"):
+    with pytest.raises(ToolError, match="webhook_url is no longer supported in MCP"):
         await call("search_people", api, thread_id=str(uuid.uuid4()), webhook_url="https://hooks.example.com/x")
     assert api.requests == []
 

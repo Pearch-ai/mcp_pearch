@@ -672,7 +672,7 @@ def _resolve_api_key() -> str:
     return os.environ.get("PEARCH_API_KEY") or _DEFAULT_API_KEY
 
 
-class _RejectConnectionArguments(Middleware):
+class _RejectRetiredArguments(Middleware):
     async def on_call_tool(self, context, call_next):
         # FastMCP may ignore extra arguments. Reject even null/empty overrides:
         # silently falling back could charge a different account than intended.
@@ -682,6 +682,12 @@ class _RejectConnectionArguments(Middleware):
                 "Remove these arguments and refresh the tool list. "
                 "Authenticate through OAuth or the connection's Authorization header; "
                 "for local stdio use PEARCH_API_KEY. Only the server operator sets PEARCH_API_URL."
+            )
+        if context.message.name == "search_people" and "webhook_url" in (context.message.arguments or {}):
+            raise ToolError(
+                "webhook_url is no longer supported in MCP. Remove it and retry the call. "
+                "If the search returns pending/running, call get_search_status with the returned thread_id. "
+                "This rejected call did not start a search."
             )
         return await call_next(context)
 
@@ -703,7 +709,7 @@ mcp = FastMCP(
         "Credentials and API addresses are connection settings, never tool arguments."
     ),
     auth=_build_auth(),
-    middleware=[_RejectConnectionArguments()],
+    middleware=[_RejectRetiredArguments()],
 )
 
 
@@ -913,7 +919,6 @@ async def search_people(
     offset: int = 0,
     thread_id: str | None = None,
     wait_seconds: int | None = None,
-    webhook_url: str | None = None,
     insights: bool | None = None,
     insights_items: list[str] | None = None,
     profile_scoring: bool | None = None,
@@ -957,8 +962,7 @@ async def search_people(
     is still running returns status "pending"/"running" with thread_id and task_id right
     away: call get_search_status with that thread_id to keep waiting, and do not repeat
     the search. Pro searches usually take 1-4 minutes, so expect that hand-off.
-    wait_seconds=0 submits and returns thread_id and task_id at once. webhook_url (new
-    searches only) also POSTs the finished result to that URL.
+    wait_seconds=0 submits and returns thread_id and task_id at once.
 
     Pagination: reuse thread_id from a previous response and change only limit/offset.
     To change query or search_requirements, start a new search without thread_id.
@@ -989,8 +993,6 @@ async def search_people(
         if offset >= 1000:
             raise ValueError("offset must be below 1000 (the API serves at most the top 1000 results)")
         limit = 1000 - offset
-    if thread_id is not None and webhook_url is not None:
-        raise ValueError("webhook_url applies to new searches only; drop thread_id or webhook_url")
     if search_type is None and thread_id is None:
         search_type = "fast"
     body = _body(
@@ -1024,8 +1026,6 @@ async def search_people(
     body["short_response"] = short_response
     if thread_id is None:
         body["async"] = True
-        if webhook_url is not None:
-            body["webhook_url"] = webhook_url
     key = _resolve_api_key()
     started = time.monotonic()
     status, payload = await _request("v2/search", body, key=key)

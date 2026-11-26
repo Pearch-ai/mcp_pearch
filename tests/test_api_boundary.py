@@ -73,6 +73,55 @@ async def test_tools_do_not_advertise_connection_secrets_or_destinations():
         assert {"api_key", "base_url"}.isdisjoint(tool.inputSchema["properties"]), tool.name
 
 
+async def test_tools_do_not_advertise_webhook_destinations():
+    async with Client(pearch_mcp.mcp) as client:
+        tools = await client.list_tools()
+    for tool in tools:
+        assert "webhook_url" not in tool.inputSchema["properties"], tool.name
+
+
+@pytest.mark.parametrize("value", [None, "", "https://hooks.example.com/private-receiver-secret"])
+@pytest.mark.parametrize("followup", [False, True])
+async def test_retired_webhook_argument_fails_before_search(monkeypatch, value, followup):
+    with serve() as (url, requests):
+        monkeypatch.setenv("PEARCH_API_URL", url)
+        monkeypatch.setenv("PEARCH_API_KEY", "local-account")
+        arguments = {"thread_id": "existing-thread"} if followup else {"query": "engineers"}
+        async with Client(pearch_mcp.mcp) as client:
+            with pytest.raises(ToolError, match="webhook_url is no longer supported in MCP") as error:
+                await client.call_tool("search_people", {**arguments, "webhook_url": value})
+        assert "get_search_status" in str(error.value)
+        assert "thread_id" in str(error.value)
+        assert "private-receiver-secret" not in str(error.value)
+        assert requests == []
+
+
+async def test_http_client_can_retry_without_the_retired_webhook(monkeypatch):
+    with serve() as (url, requests):
+        monkeypatch.setenv("PEARCH_API_URL", url)
+        monkeypatch.setattr(pearch_mcp.mcp, "auth", pearch_mcp.PearchApiKeyVerifier())
+        app = pearch_mcp.mcp.http_app(stateless_http=True, json_response=True)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://mcp.test") as client:
+                rejected = await rpc(client, "tools/call", {"name": "search_people", "arguments": {
+                    "query": "engineers", "webhook_url": "https://hooks.example.com/private-receiver-secret",
+                }}, "account-a")
+                assert rejected.status_code == 200
+                assert rejected.json()["result"]["isError"] is True
+                assert "get_search_status" in rejected.text
+                assert "private-receiver-secret" not in rejected.text
+                assert [r["path"] for r in requests] == ["/v1/user"]
+                accepted = await rpc(client, "tools/call", {"name": "search_people", "arguments": {
+                    "query": "engineers", "wait_seconds": 0,
+                }}, "account-a")
+                assert accepted.status_code == 200
+                assert not accepted.json()["result"].get("isError")
+        searches = [r for r in requests if r["method"] == "POST"]
+        assert len(searches) == 1
+        body = json.loads(searches[0]["body"])
+        assert body["async"] is True and "webhook_url" not in body
+
+
 @pytest.mark.parametrize("tool", TOOLS)
 async def test_each_tool_uses_the_server_url_and_local_credential(monkeypatch, tool):
     def reply(request):
