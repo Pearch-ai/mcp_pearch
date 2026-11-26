@@ -34,6 +34,7 @@ import urllib.request
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth import oauth_proxy as _fastmcp_oauth_proxy
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
@@ -41,6 +42,7 @@ from fastmcp.utilities.ui import create_page
 from fastmcp.server.auth.providers.google import GoogleTokenVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.event_store import EventStore
+from fastmcp.server.middleware import Middleware
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -89,8 +91,27 @@ _DEFAULT_CLIENT_REDIRECT_URIS = [
 ]
 
 
-def _api_root(base_url: str | None = None) -> str:
-    return (base_url or os.environ.get("PEARCH_API_URL") or _DEFAULT_BASE_URL).rstrip("/")
+def _api_root() -> str:
+    return (os.environ.get("PEARCH_API_URL") or _DEFAULT_BASE_URL).rstrip("/")
+
+
+class _RejectApiRedirects(urllib.request.HTTPErrorProcessor):
+    """Stop API redirects before urllib can forward credentials or signed headers."""
+
+    def http_response(self, request, response):
+        if 300 <= response.code < 400:
+            response.close()
+            raise urllib.error.URLError(
+                "Pearch API redirects are disabled; configure the final PEARCH_API_URL."
+            )
+        return super().http_response(request, response)
+
+    https_response = http_response
+
+
+def _open_api_request(request: urllib.request.Request, *, timeout: float):
+    # A private opener leaves OAuth's browser redirects and other clients alone.
+    return urllib.request.build_opener(_RejectApiRedirects()).open(request, timeout=timeout)
 
 
 def _client_redirect_uris() -> list[str] | None:
@@ -311,7 +332,7 @@ class PearchApiKeyVerifier(TokenVerifier):
 
     def __init__(self, base_url: str | None = None, scopes: list[str] | None = None):
         super().__init__(required_scopes=scopes)
-        self._base_url = _api_root(base_url)
+        self._base_url = (base_url or _api_root()).rstrip("/")
         self._scopes = list(scopes or [])
         self._cache = _IdentityCache()
 
@@ -350,7 +371,7 @@ class PearchApiKeyVerifier(TokenVerifier):
             method="GET",
         )
         try:
-            with urllib.request.urlopen(req, timeout=_AUTH_TIMEOUT) as resp:
+            with _open_api_request(req, timeout=_AUTH_TIMEOUT) as resp:
                 if resp.getcode() != 200:
                     return None
                 return json.load(resp)
@@ -389,7 +410,7 @@ def _fetch_api_key_for_email(email: str) -> str | None:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=_AUTH_TIMEOUT) as resp:
+        with _open_api_request(req, timeout=_AUTH_TIMEOUT) as resp:
             if resp.getcode() != 200:
                 return None
             return (json.load(resp) or {}).get("api_key") or None
@@ -637,9 +658,7 @@ def _build_auth() -> Any:
     return _build_oauth_auth()
 
 
-def _resolve_api_key(api_key: str | None) -> str:
-    if api_key:
-        return api_key
+def _resolve_api_key() -> str:
     try:
         access = get_access_token()
     except Exception:
@@ -651,6 +670,20 @@ def _resolve_api_key(api_key: str | None) -> str:
         if access.token:
             return access.token
     return os.environ.get("PEARCH_API_KEY") or _DEFAULT_API_KEY
+
+
+class _RejectConnectionArguments(Middleware):
+    async def on_call_tool(self, context, call_next):
+        # FastMCP may ignore extra arguments. Reject even null/empty overrides:
+        # silently falling back could charge a different account than intended.
+        if {"api_key", "base_url"}.intersection(context.message.arguments or {}):
+            raise ToolError(
+                "api_key and base_url are connection settings, not tool arguments. "
+                "Remove these arguments and refresh the tool list. "
+                "Authenticate through OAuth or the connection's Authorization header; "
+                "for local stdio use PEARCH_API_KEY. Only the server operator sets PEARCH_API_URL."
+            )
+        return await call_next(context)
 
 
 mcp = FastMCP(
@@ -666,9 +699,11 @@ mcp = FastMCP(
         "their thread_id. "
         "Authenticate via OAuth (sign in with the Google account of your Pearch user) or "
         "with a Pearch API key (Authorization: Bearer, same key as api.pearch.ai). "
-        "Use test_mcp_key for masked sample results."
+        "For masked sample results, configure test_mcp_key as the connection credential. "
+        "Credentials and API addresses are connection settings, never tool arguments."
     ),
     auth=_build_auth(),
+    middleware=[_RejectConnectionArguments()],
 )
 
 
@@ -713,11 +748,10 @@ def _send(
     method: str,
     path: str,
     key: str,
-    base_url: str | None,
     body: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    url = f"{_api_root(base_url)}/{path.lstrip('/')}"
+    url = f"{_api_root()}/{path.lstrip('/')}"
     clean = {
         k: ("true" if v is True else "false" if v is False else v)
         for k, v in (params or {}).items()
@@ -733,7 +767,7 @@ def _send(
         method=method,
     )
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with _open_api_request(req, timeout=_TIMEOUT) as resp:
             if resp.getcode() not in (200, 202):
                 raise RuntimeError(f"HTTP {resp.getcode()}")
             return resp.getcode(), json.load(resp)
@@ -741,17 +775,15 @@ def _send(
         raise _read_error(e) from e
 
 
-async def _post(path: str, body: dict[str, Any], key: str, base_url: str | None) -> tuple[int, dict[str, Any]]:
-    return await asyncio.to_thread(_send, "POST", path, key, base_url, body)
+async def _post(path: str, body: dict[str, Any], key: str) -> tuple[int, dict[str, Any]]:
+    return await asyncio.to_thread(_send, "POST", path, key, body)
 
 
 async def _request(
     path: str,
     body: dict[str, Any],
-    api_key: str | None = None,
-    base_url: str | None = None,
+    key: str,
 ) -> tuple[int, dict[str, Any]]:
-    key = _resolve_api_key(api_key)
     # The demo key has no credits: force the masked free mode for it. Company-leads
     # thread replays reject the free param, and their credit check is skipped on
     # the cached path anyway.
@@ -761,17 +793,15 @@ async def _request(
         and not (path.endswith("search_company_leads") and "thread_id" in body)
     ):
         body["free"] = True
-    return await _post(path, body, key, base_url)
+    return await _post(path, body, key)
 
 
 async def _get_request(
     path: str,
     params: dict[str, Any],
-    api_key: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
-    key = _resolve_api_key(api_key)
-    _, payload = await asyncio.to_thread(_send, "GET", path, key, base_url, None, params)
+    key = _resolve_api_key()
+    _, payload = await asyncio.to_thread(_send, "GET", path, key, None, params)
     return payload
 
 
@@ -788,7 +818,6 @@ def _wait_budget(wait_seconds: int | None) -> float:
 async def _await_thread(
     thread_id: str,
     key: str,
-    base_url: str | None,
     short_response: bool,
     wait_s: float,
     *,
@@ -798,13 +827,13 @@ async def _await_thread(
     poll = {"thread_id": thread_id, "short_response": short_response}
     pending = None
     if poll_first:
-        status, payload = await _post("v2/search", poll, key, base_url)
+        status, payload = await _post("v2/search", poll, key)
         if status != 202:
             return payload, None
         pending = payload
     while (remaining := deadline - time.monotonic()) > 0:
         await asyncio.sleep(min(_POLL_INTERVAL_S, remaining))
-        status, payload = await _post("v2/search", poll, key, base_url)
+        status, payload = await _post("v2/search", poll, key)
         if status != 202:
             return payload, None
         pending = payload
@@ -902,8 +931,6 @@ async def search_people(
     docid_blacklist: list[str] | None = None,
     docid_whitelist: list[str] | None = None,
     free: bool | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
     search_requirements: list[SearchRequirement] | None = None,
 ) -> dict[str, Any]:
     """Search for people using a natural-language query or structured search requirements.
@@ -999,16 +1026,15 @@ async def search_people(
         body["async"] = True
         if webhook_url is not None:
             body["webhook_url"] = webhook_url
-    key = _resolve_api_key(api_key)
+    key = _resolve_api_key()
     started = time.monotonic()
-    status, payload = await _request("v2/search", body, api_key=key, base_url=base_url)
+    status, payload = await _request("v2/search", body, key=key)
     if status != 202:
         return payload
     search_thread = payload.get("thread_id") or thread_id
     result, pending = await _await_thread(
         search_thread,
         key,
-        base_url,
         short_response,
         _wait_budget(wait_seconds) - (time.monotonic() - started),
         poll_first=False,
@@ -1017,7 +1043,7 @@ async def search_people(
         return _still_running(pending or payload, search_thread, time.monotonic() - started)
     if thread_id is None:
         return _finished_search(result)
-    _, page = await _request("v2/search", body, api_key=key, base_url=base_url)
+    _, page = await _request("v2/search", body, key=key)
     return page
 
 
@@ -1029,8 +1055,6 @@ async def get_search_status(
     thread_id: str,
     wait_seconds: int | None = None,
     short_response: bool = True,
-    api_key: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Wait for a people search that is still running and return its results.
 
@@ -1045,12 +1069,11 @@ async def get_search_status(
     For other pages of a finished search use search_people with thread_id, limit and
     offset.
     """
-    key = _resolve_api_key(api_key)
+    key = _resolve_api_key()
     started = time.monotonic()
     result, pending = await _await_thread(
         thread_id,
         key,
-        base_url,
         short_response,
         _wait_budget(wait_seconds),
         poll_first=True,
@@ -1070,8 +1093,6 @@ async def list_searches(
     include_organization: bool = False,
     date_from: str | None = None,
     date_to: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
     """List your recent people and company-leads searches, newest first, with their thread_id.
 
@@ -1096,8 +1117,6 @@ async def list_searches(
             date_from=date_from,
             date_to=date_to,
         ),
-        api_key=api_key,
-        base_url=base_url,
     )
     searches = []
     consumed = 0
@@ -1136,8 +1155,6 @@ async def search_company_leads(
     omit_fields: list[str] | None = None,
     thread_id: str | None = None,
     free: bool | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Find companies and leads (contacts) within those companies. For B2B sales or headhunting.
 
@@ -1206,7 +1223,7 @@ async def search_company_leads(
             free=free,
         )
     body["short_response"] = short_response
-    _, payload = await _request("v2/search_company_leads", body, api_key=api_key, base_url=base_url)
+    _, payload = await _request("v2/search_company_leads", body, key=_resolve_api_key())
     return payload
 
 
@@ -1224,8 +1241,6 @@ async def get_profile(
     with_profile: bool | None = None,
     github_enrich: bool | None = None,
     short_response: bool = True,
-    api_key: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Look up and enrich a single person's profile.
 
@@ -1251,22 +1266,19 @@ async def get_profile(
         github_enrich=github_enrich,
         short_response=short_response,
     )
-    return await _get_request("v1/profile", params, api_key=api_key, base_url=base_url)
+    return await _get_request("v1/profile", params)
 
 
 @mcp.tool(
     title="Get Account Info",
     annotations={"readOnlyHint": True, "openWorldHint": False},
 )
-async def get_user_info(
-    api_key: str | None = None,
-    base_url: str | None = None,
-) -> dict[str, Any]:
+async def get_user_info() -> dict[str, Any]:
     """Get the authenticated Pearch user: email, remaining credits, pricing plan.
 
     Free (0 credits). Use it to check the credit balance before expensive searches.
     """
-    return await _get_request("v1/user", {}, api_key=api_key, base_url=base_url)
+    return await _get_request("v1/user", {})
 
 
 @mcp.custom_route("/health", methods=["GET"])

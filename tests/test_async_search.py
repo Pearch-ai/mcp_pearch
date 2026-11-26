@@ -77,7 +77,7 @@ class FakePearchApi:
 
 
 @pytest.fixture
-def api():
+def api(monkeypatch):
     fake = FakePearchApi()
 
     class Handler(BaseHTTPRequestHandler):
@@ -112,15 +112,22 @@ def api():
                 self.reply(404, {"error": "not found"})
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
     fake.base_url = f"http://127.0.0.1:{server.server_port}"
-    yield fake
-    server.shutdown()
+    monkeypatch.setenv("PEARCH_API_URL", fake.base_url)
+    monkeypatch.setenv("PEARCH_API_KEY", KEY)
+    try:
+        yield fake
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 async def call(tool, api, **arguments):
     async with Client(pearch_mcp.mcp) as client:
-        result = await client.call_tool(tool, {"api_key": KEY, "base_url": api.base_url, **arguments})
+        result = await client.call_tool(tool, arguments)
         return result.structured_content
 
 
@@ -250,10 +257,10 @@ async def test_a_long_search_does_not_block_other_tool_calls(api):
 
         async def account():
             await asyncio.sleep(0.2)
-            await second.call_tool("get_user_info", {"api_key": KEY, "base_url": api.base_url})
+            await second.call_tool("get_user_info", {})
             return time.monotonic() - started
 
-        search = first.call_tool("search_people", {"query": "slow", "api_key": KEY, "base_url": api.base_url})
+        search = first.call_tool("search_people", {"query": "slow"})
         _, account_done_at = await asyncio.gather(search, account())
 
     assert account_done_at < 1

@@ -164,7 +164,7 @@ Health: `GET /health` or `/healthcheck` (reports the auth mode).
 | `PEARCH_MCP_OAUTH_REDIS_PREFIX` | `mcp-pearch` | Prefix applied to every OAuth collection so one Redis database can safely host multiple applications. |
 | `PEARCH_MCP_ALLOWED_CLIENT_REDIRECT_URIS` | built-in list | Comma-separated fnmatch patterns for MCP client redirect URIs (`*` = any). |
 | `PEARCH_MCP_TOKEN_CACHE_TTL_S` | `300` | Verified-identity cache TTL; also the revocation lag. |
-| `PEARCH_API_URL` | `https://api.pearch.ai` | Pearch API base (per-call `base_url` overrides). |
+| `PEARCH_API_URL` | `https://api.pearch.ai` | Server-controlled Pearch API base. Tools cannot override it. Use the final URL: API redirects are refused. |
 | `PEARCH_API_KEY` | `test_mcp_key` | Fallback key for stdio/local use. |
 | `PEARCH_MCP_SEARCH_WAIT_S` | `40` | Default time a tool call waits for a background people search before handing back `thread_id`. Keep it below the clients' tool-call limit. |
 | `PEARCH_MCP_POLL_INTERVAL_S` | `2` | Interval between status polls while waiting. |
@@ -177,8 +177,8 @@ including people search, company-leads search, pagination, and profile enrichmen
 hosted server also sends `X-Pearch-Source-Signature` when the internal secret is configured
 and the destination origin matches `PEARCH_API_URL`. The HMAC binds the bearer credential,
 method, decoded path plus raw query, body, and timestamp. The backend accepts signatures
-within 300 seconds, so server clocks must be synchronized. Caller-supplied `base_url` values
-on other origins receive no signature.
+within 300 seconds, so server clocks must be synchronized. API requests use only the
+server-configured destination; redirects are refused before forwarding any credentials.
 
 The backend records verified MCP traffic as `api_calls.request_source` for analytics and
 DevAdmin history. A bare source header is insufficient. Unsigned self-hosted MCP traffic
@@ -215,3 +215,22 @@ Pearch.AI's privacy policy: https://pearch.ai/privacy-policy — covers data col
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Tool connection settings and migration
+
+All six tools obtain credentials from the authenticated MCP connection. `api_key` and
+`base_url` are no longer tool arguments. OAuth and `Authorization: Bearer <key>`
+connections continue to work; local stdio uses `PEARCH_API_KEY` (default `test_mcp_key`
+for masked samples). Only the server operator can set `PEARCH_API_URL`.
+
+Refresh the connector's tool list after upgrading. Older clients that send either
+removed argument, including null or empty values, receive a migration error before
+any tool request reaches the Pearch API. Remove those arguments and configure the
+credential on the connection. They are deliberately not ignored: silently switching
+from an explicit demo key to the signed-in user's key could spend credits unexpectedly.
+To change accounts or use the demo key, change the connection credential.
+
+Pearch API redirects (all HTTP 3xx) are refused, including during token verification
+and legacy Google email-to-key mapping. For a self-hosted API, configure its final URL
+directly. OAuth browser redirects are unaffected. Search options, async polling,
+pagination, source signatures and credit accounting remain unchanged.

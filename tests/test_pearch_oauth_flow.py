@@ -12,6 +12,7 @@ from fastmcp import FastMCP
 from key_value.aio.stores.memory import MemoryStore
 
 import pearch_mcp
+from test_api_boundary import rpc, serve
 
 BASE = "https://mcp.example.test"
 SUPABASE = "https://project.supabase.co"
@@ -132,6 +133,34 @@ async def sign_in(mcp_client, supabase, client_scopes="email profile"):
     )
     assert token.status_code == 200, token.text
     return upstream_authorize, token, client_id
+
+
+@respx.mock(assert_all_called=False)
+async def test_sign_in_then_call_a_real_tool_with_the_upstream_credential(
+    monkeypatch, proxy, pearch_api, respx_mock,
+):
+    with serve() as (url, requests):
+        monkeypatch.setenv("PEARCH_API_URL", url)
+        monkeypatch.setenv("PEARCH_API_KEY", "must-not-use-local-fallback")
+        monkeypatch.setattr(pearch_mcp.mcp, "auth", proxy)
+        app = pearch_mcp.mcp.http_app(stateless_http=True, json_response=True)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as client:
+                _, token, _ = await sign_in(client, respx_mock)
+                bearer = token.json()["access_token"]
+                response = await rpc(client, "tools/call", {"name": "get_user_info", "arguments": {}}, bearer)
+                assert response.status_code == 200, response.text
+                assert response.json()["result"]["structuredContent"]["user"]["email"] == "test@example.com"
+                schema = await rpc(client, "tools/list", {}, bearer)
+                for tool in schema.json()["result"]["tools"]:
+                    assert {"api_key", "base_url"}.isdisjoint(tool["inputSchema"]["properties"])
+                rejected = await rpc(client, "tools/call", {
+                    "name": "get_user_info", "arguments": {"api_key": "test_mcp_key"},
+                }, bearer)
+                assert rejected.json()["result"]["isError"] is True
+        assert len(requests) == 1
+        assert requests[0]["headers"]["Authorization"] == f"Bearer {UPSTREAM_ACCESS}"
+        assert pearch_api and set(pearch_api) == {UPSTREAM_ACCESS}
 
 
 @respx.mock(assert_all_called=False)

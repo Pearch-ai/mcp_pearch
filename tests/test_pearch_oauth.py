@@ -115,7 +115,7 @@ async def test_api_key_verification_is_unchanged_without_scopes(monkeypatch):
 def test_tool_calls_forward_the_stored_upstream_token(monkeypatch):
     access = AccessToken(token="mcp-jwt", client_id="x", scopes=[], claims={"api_key": "upstream-token"})
     monkeypatch.setattr(pearch_mcp, "get_access_token", lambda: access)
-    assert pearch_mcp._resolve_api_key(None) == "upstream-token"
+    assert pearch_mcp._resolve_api_key() == "upstream-token"
 
 
 @pytest.mark.parametrize("mode_env", ["pearch_oauth", "api_key"])
@@ -148,7 +148,7 @@ def _refuse_with(monkeypatch, code, body):
     def urlopen(request, timeout=None):
         raise urllib.error.HTTPError(request.full_url, code, "refused", {}, io.BytesIO(body))
 
-    monkeypatch.setattr(pearch_mcp.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(pearch_mcp, "_open_api_request", urlopen)
 
 
 def test_verifier_says_when_the_api_refuses_a_token_from_sign_in(monkeypatch, caplog):
@@ -184,7 +184,7 @@ def test_verifier_reports_a_network_failure(monkeypatch, caplog):
     def urlopen(request, timeout=None):
         raise urllib.error.URLError("handshake failed")
 
-    monkeypatch.setattr(pearch_mcp.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(pearch_mcp, "_open_api_request", urlopen)
     caplog.set_level(logging.WARNING)
 
     assert pearch_mcp.PearchApiKeyVerifier(base_url="https://api.example.test")._fetch_user("pk_any") is None
